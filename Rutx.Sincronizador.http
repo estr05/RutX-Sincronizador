@@ -1,0 +1,128 @@
+@Rutx.Sincronizador_HostAddress = http://localhost:5047
+
+### 1. Sincronización Matutina (Descarga de Catálogos)
+GET {{Rutx.Sincronizador_HostAddress}}/api/v1/sync/morning
+Accept: application/json
+
+###
+
+### 2. Creación de Cliente Nuevo (Válido)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/clientes
+Content-Type: application/json
+Accept: application/json
+
+{
+  "nombre": "Abarrotes La Esperanza",
+  "sujetoIeps": "N",
+  "diferirCfdiCobros": false,
+  "limiteCredito": 5000.00,
+  "monedaId": null,
+  "condPagoId": null
+}
+
+###
+
+### 2b. Creación de Cliente Nuevo (Inválido - Nombre requerido)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/clientes
+Content-Type: application/json
+Accept: application/json
+
+{
+  "nombre": "",
+  "sujetoIeps": "N",
+  "diferirCfdiCobros": false,
+  "limiteCredito": -100.00
+}
+
+###
+
+### 3. Registro de Venta (Válido)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/ventas
+Content-Type: application/json
+Accept: application/json
+
+{
+  "venta_movil_id": "VTA-99823",
+  "vendedor_id": 7,
+  "cliente_id": 1045,
+  "fecha_hora": "2026-06-25T14:30:00",
+  "notas": "Entregar por la puerta trasera",
+  "detalles": [
+    {
+      "articulo_id": 88,
+      "unidades": 2.00000,
+      "precio_unitario": 15.50000
+    }
+  ]
+}
+
+###
+
+### 3b. Registro de Venta (Inválido - Sin Detalles)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/ventas
+Content-Type: application/json
+Accept: application/json
+
+{
+  "venta_movil_id": "VTA-99823",
+  "vendedor_id": 7,
+  "cliente_id": 1045,
+  "fecha_hora": "2026-06-25T14:30:00",
+  "notas": "Sin detalles de artículos",
+  "detalles": []
+}
+
+###
+
+### 4. Cierre del Día (Válido)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/sync/closing
+Content-Type: application/json
+Accept: application/json
+
+{
+  "vendedor_id": 7,
+  "ruta_activa": "Ruta Centro",
+  "fecha_hora": "2026-06-25T18:00:00",
+  "inventario_final": [
+    {
+      "articulo_id": 88,
+      "unidades_restantes": 12.00000
+    }
+  ],
+  "mermas": [
+    {
+      "articulo_id": 88,
+      "unidades": 1.00000,
+      "motivo": "Empaque roto durante trayecto"
+    }
+  ],
+  "devoluciones": [
+    {
+      "cliente_id": 1045,
+      "articulo_id": 88,
+      "unidades": 2.00000,
+      "motivo": "Exceso de pedido solicitado por cliente"
+    }
+  ]
+}
+
+###
+
+### 4b. Cierre del Día (Inválido - Ruta requerida, Unidades negativas)
+POST {{Rutx.Sincronizador_HostAddress}}/api/v1/sync/closing
+Content-Type: application/json
+Accept: application/json
+
+{
+  "vendedor_id": 7,
+  "ruta_activa": "",
+  "fecha_hora": "2026-06-25T18:00:00",
+  "inventario_final": [
+    {
+      "articulo_id": 88,
+      "unidades_restantes": -5.00000
+    }
+  ],
+  "mermas": [],
+  "devoluciones": []
+}

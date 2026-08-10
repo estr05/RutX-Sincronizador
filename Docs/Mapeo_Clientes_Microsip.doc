@@ -1,0 +1,120 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>Documentación de Mapeo - Tabla CLIENTES</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+  h1 { color: #2F5496; font-size: 18pt; }
+  h2 { color: #2F5496; font-size: 14pt; border-bottom: 1px solid #ccc; padding-bottom: 3px; margin-top: 20px; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+  th, td { border: 1px solid #000000; padding: 8px; text-align: left; vertical-align: top; }
+  th { background-color: #D9E1F2; font-weight: bold; }
+  pre { background-color: #F2F2F2; padding: 10px; border: 1px solid #ccc; font-family: Consolas, monospace; }
+  .note { background-color: #FFF2CC; padding: 10px; border-left: 4px solid #FFC000; margin-bottom: 15px; }
+</style>
+</head>
+<body>
+
+<h1>Entregable: Mapeo de Entidades Críticas y Contrato API</h1>
+<p><strong>Autora:</strong> Hannia<br>
+<strong>Módulo:</strong> Sincronizador / Middleware (Microsip - Firebird)<br>
+<strong>Entidad:</strong> CLIENTES</p>
+
+<h2>1. Diccionario de Datos (Mapeo IBExpert)</h2>
+<p>Análisis de los campos obligatorios y comportamiento interno de la tabla <code>CLIENTES</code> en la base de datos Firebird.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Campo</th>
+      <th>Tipo de Dato</th>
+      <th>Restricción</th>
+      <th>Valor Sugerido (Sincronizador)</th>
+      <th>Descripción y Comportamiento</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>CLIENTE_ID</strong></td>
+      <td>INTEGER</td>
+      <td>PK, NOT NULL</td>
+      <td><code>-1</code></td>
+      <td><strong>Crítico:</strong> Se debe enviar -1. El trigger <code>CLIENTES_BefIns</code> intercepta este valor e inyecta el ID real consecutivo usando el generador de Firebird (<code>GEN_ID(ID_CATALOGOS, 1)</code>).</td>
+    </tr>
+    <tr>
+      <td><strong>NOMBRE</strong></td>
+      <td>VARCHAR(200)</td>
+      <td>NOT NULL</td>
+      <td>"String"</td>
+      <td>Nombre completo o Razón Social del cliente.</td>
+    </tr>
+    <tr>
+      <td><strong>SUJETO_IEPS</strong></td>
+      <td>CHAR(1)</td>
+      <td>NOT NULL</td>
+      <td><code>'N'</code></td>
+      <td>Pertenece al dominio SI_NO_N. Por defecto, si no aplica IEPS, se envía la 'N'.</td>
+    </tr>
+    <tr>
+      <td><strong>DIFERIR_CFDI_COBROS</strong></td>
+      <td>BOOLEAN</td>
+      <td>NOT NULL</td>
+      <td><code>false</code></td>
+      <td>Bandera para la gestión de cobros. Usualmente en false para clientes nuevos por defecto.</td>
+    </tr>
+    <tr>
+      <td><strong>LIMITE_CREDITO</strong></td>
+      <td>NUMERIC(15,2)</td>
+      <td>NOT NULL</td>
+      <td><code>0.00</code></td>
+      <td>Monto de crédito autorizado. Si la app móvil no maneja crédito, enviar siempre ceros.</td>
+    </tr>
+    <tr>
+      <td><strong>MONEDA_ID</strong></td>
+      <td>INTEGER</td>
+      <td>FK, NOT NULL</td>
+      <td>ID Válido (Ej: 1)</td>
+      <td>Llave foránea de Microsip. Indica la moneda base del cliente.</td>
+    </tr>
+    <tr>
+      <td><strong>COND_PAGO_ID</strong></td>
+      <td>INTEGER</td>
+      <td>FK, NOT NULL</td>
+      <td>ID Válido (Ej: 1)</td>
+      <td>Llave foránea de Microsip. Indica si es de contado o tiene días de crédito.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <strong>Comportamiento Secundario (Tabla MGFACTURA_USUARIOS):</strong><br>
+  Al insertar un cliente, el trigger <code>CLIENTES_AI0</code> (AFTER INSERT) se detona automáticamente, generando un USUARIO_ID e insertando un registro en la tabla MGFACTURA_USUARIOS. El Sincronizador <strong>no debe</strong> interactuar con esta tabla, Microsip la gestiona internamente.
+</div>
+
+<h2>2. Diseño del Contrato de la API (Payload JSON)</h2>
+<p>Estructura esperada para el endpoint <code>POST /api/v1/clientes</code>.</p>
+<pre>
+{
+  "cliente_id": -1,
+  "nombre": "Empresa de Pruebas S.A. de C.V.",
+  "sujeto_ieps": "N",
+  "diferir_cfdi_cobros": false,
+  "limite_credito": 0.00,
+  "moneda_id": 1, 
+  "cond_pago_id": 1 
+}
+</pre>
+
+<h2>3. Estrategia para Llaves Foráneas (Mapeo en el Middleware)</h2>
+<p>Ya que la App Móvil no tiene conocimiento de los IDs internos de Microsip (MONEDA_ID, COND_PAGO_ID), el Sincronizador/Middleware actúa como traductor utilizando la siguiente estrategia:</p>
+<p><strong>Estrategia Seleccionada: Hardcodeo Seguro por Configuración</strong></p>
+<ul>
+  <li>Se configuran los valores por defecto más comunes (Ej: Moneda Nacional y Pago de Contado) directamente en las variables de entorno del servidor (<code>appsettings.json</code>).</li>
+  <li>Si la aplicación móvil no envía estos datos explícitamente, el Sincronizador inyectará automáticamente los IDs configurados antes de realizar la inserción en Firebird.</li>
+  <li>Esto previene errores de integridad referencial y permite cambiar los IDs por defecto en el futuro sin necesidad de actualizar la aplicación móvil.</li>
+</ul>
+
+</body>
+</html>

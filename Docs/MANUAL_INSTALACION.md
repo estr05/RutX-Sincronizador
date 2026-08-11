@@ -69,15 +69,25 @@ cd RutX-Sincronizador
 
 ### 2.2 Publicar los ejecutables
 
-Crea la carpeta de salida y publica **ambos** proyectos en la misma carpeta:
+**Opción recomendada — el archivo `publicar.bat`** (no escribes nada a mano,
+no hay typos posibles):
+
+1. En el Explorador, entra a la carpeta `RutX-Sincronizador` (la que clonaste).
+2. Haz **doble clic** en `publicar.bat`.
+3. Espera a que termine: verás la carpeta `publicacion` con los dos `.exe`.
+
+> Para la versión "todo adentro" (cliente sin .NET Runtime):
+> `publicar.bat selfcontained`.
+
+> **[Captura de pantalla: el archivo publicar.bat dentro de la carpeta y su ventana al terminar]**
+
+**Alternativa manual** (si prefieres los comandos):
 
 ```bash
 mkdir publicacion
 dotnet publish Rutx.Sincronizador.csproj -c Release -o publicacion
 dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -o publicacion
 ```
-
-> **[Captura de pantalla: terminal con los comandos `dotnet publish` y su salida]**
 
 Resultado esperado — la carpeta `publicacion` debe contener:
 
@@ -89,23 +99,16 @@ publicacion/
 └── wwwroot/admin.html            ← Panel web
 ```
 
-> **Si la PC del cliente no tendrá .NET Runtime instalado**, publica con
-> "todo adentro" (*self-contained*) agregando `-r win-x64 --self-contained true`
-> a ambos comandos:
+> **Si la PC del cliente no tendrá .NET Runtime instalado**, usa la versión
+> "todo adentro" (*self-contained*): `publicar.bat selfcontained`. El paquete
+> pesa más (≈150 MB), pero no requiere instalar nada en el cliente.
 >
-> ```bash
-> dotnet publish Rutx.Sincronizador.csproj -c Release -r win-x64 --self-contained true -o publicacion
-> dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -r win-x64 --self-contained true -o publicacion
-> ```
->
-> El paquete pesa más (≈150 MB), pero no requiere instalar nada en el cliente.
->
-> ⚠️ **Copia los comandos tal cual**: el modificador se escribe con guion
-> (`--self-contained`). Si lo escribes sin guion (`--selfcontained`), obtendrás
-> el error `MSB1001: Modificador desconocido`. Tampoco cambies el nombre del
-> segundo proyecto: debe incluir su subcarpeta (`Rutx.Sincronizador.Admin/...`),
-> no solo `Rutx.Sincronizador.Admin`. Ejecuta los comandos desde la raíz del
-> repositorio (`C:\RutX-Sincronizador`), no desde dentro de `publicacion`.
+> ⚠️ **Ojo con los typos si escribes los comandos a mano**: el modificador lleva
+> guion (`--self-contained`, no `--selfcontained`), y el segundo proyecto debe
+> incluir su subcarpeta (`Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`).
+> Un typo genera `MSB1001: Modificador desconocido`; un comando pegado partido
+> genera `Falta el argumento requerido para la opción: '-c'`. Por eso se
+> recomienda usar `publicar.bat`.
 
 > **Si la publicación falla** con errores de dependencias: ejecuta `dotnet restore`
 > en la raíz del repositorio y vuelve a intentar.
@@ -273,7 +276,7 @@ Confirma que la instalación quedó operativa:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `MSB1001: Modificador desconocido` al publicar | El modificador se escribió sin guion (`--selfcontained`) o el proyecto de la Admin sin su subcarpeta | Copia los comandos tal cual de la sección 2.2: `--self-contained` (con guion) y `Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`; ejecuta desde la raíz del repositorio |
+| `MSB1001: Modificador desconocido` o `Falta el argumento requerido para la opción: '-c'` al publicar | El comando se escribió mal o se pegó partido (typo `--selfcontained`, comando cortado, etc.) | Evita escribir a mano: doble clic en `publicar.bat` (sección 2.2). Si insistes con comandos: `--self-contained` (con guion), `Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`, desde la raíz del repositorio |
 | "Ya hay una instancia del Sincronizador ejecutándose" | Otra instancia activa o proceso huérfano en :5047 | Cierra el launcher/terminal anterior o ejecuta `taskkill /F /PID <pid>` sobre el proceso que escucha en 5047 |
 | "No se localizó `Rutx.Sincronizador.exe`" | El launcher no encuentra el ejecutable del sync | Verifica que ambos .exe estén en la misma carpeta (`C:\Sincronizador`); vuelve a ejecutar el asistente o ubica el archivo manualmente |
 | "Publicador desconocido" al ejecutar | Ejecutables sin firma digital | **Más información → Ejecutar de todas formas** |
@@ -345,8 +348,8 @@ cerrado cuando sea posible.
 Para validar el flujo completo **sin una segunda máquina**, usa tu propia PC
 como si fuera la del cliente:
 
-1. Prepara el paquete (sección 2): `mkdir publicacion` + los dos
-   `dotnet publish ... -o publicacion`.
+1. Prepara el paquete (sección 2): doble clic en `publicar.bat`
+   (o `publicar.bat selfcontained` si quieres la versión completa).
 2. Copia la carpeta `publicacion` a una carpeta limpia de prueba
    (ej. `C:\PruebaCliente\`) — simula el USB y el disco del cliente.
 3. Ejecuta `C:\PruebaCliente\Rutx.Sincronizador.Admin.exe`.

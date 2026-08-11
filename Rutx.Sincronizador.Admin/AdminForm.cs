@@ -38,17 +38,18 @@ public class AdminForm : Form
 
     public AdminForm()
     {
-        // Localizar el exe del sync (instalacion estandarizada, ruta persistida,
-        // carpeta del launcher o bin del proyecto en desarrollo)
-        _rutaExe = _sync.ResolverSyncExe() ?? "";
-
-        // PRIMER ARRANQUE sin sync localizado: abrir el asistente de instalacion
-        // (elige carpeta, BD y credenciales, instala y audita). Si el usuario lo
-        // cancela, se cae al selector manual de siempre y la ventana sigue
-        // mostrandose con el aviso de sync no localizado.
-        if (string.IsNullOrEmpty(_rutaExe))
+        // Localizar el exe del sync: instalacion estandarizada (instalacion.json),
+        // ruta persistida, carpeta del launcher o bin del proyecto en desarrollo.
+        var instalacion = InstalacionHelper.BuscarInstalacion();
+        if (instalacion != null)
         {
-            InstalarOSeleccionar();
+            _rutaExe = instalacion.ExeSync;
+            _sync.DefinirInstalacionRaiz(instalacion.Raiz);
+        }
+        else
+        {
+            _rutaExe = _sync.ResolverSyncExe() ?? "";
+            PrimerArranqueSinInstalacion();
         }
 
         Text = "RUTX · Sincronizador";
@@ -161,10 +162,29 @@ public class AdminForm : Form
     }
 
     /// <summary>
-    /// Primer arranque sin sincronizador localizado: ofrece el asistente de
-    /// instalacion estandarizada; si el usuario lo cancela, cae al selector
-    /// manual de siempre (OpenFileDialog). Devuelve el DialogResult del wizard
-    /// o Cancel si se aborto todo.
+    /// Primer arranque sin instalacion estandarizada (no existe instalacion.json):
+    ///  - Si el sync esta JUNTO al launcher (despliegue en la PC del cliente,
+    ///    misma carpeta de publicacion) se abre el asistente de instalacion
+    ///    para crear la instalacion estandarizada (carpeta, BD, credenciales,
+    ///    auditoria) copiando desde la propia carpeta del launcher.
+    ///  - Si el sync no se localizo, tambien se abre el asistente (o el selector
+    ///    manual de siempre si el usuario lo cancela).
+    ///  - En desarrollo (sync en bin del repo, lejos del launcher) NO se molesta
+    ///    con el asistente: la ventana queda lista con ▶ Iniciar.
+    /// </summary>
+    private void PrimerArranqueSinInstalacion()
+    {
+        bool syncJuntoAlLauncher = System.IO.File.Exists(
+            Path.Combine(AppContext.BaseDirectory, "Rutx.Sincronizador.exe"));
+
+        if (syncJuntoAlLauncher || string.IsNullOrEmpty(_rutaExe))
+            InstalarOSeleccionar();
+    }
+
+    /// <summary>
+    /// Ofrece el asistente de instalacion estandarizada; si el usuario lo
+    /// cancela, cae al selector manual de siempre (OpenFileDialog). Devuelve el
+    /// DialogResult del wizard o Cancel si se aborto todo.
     /// </summary>
     private DialogResult InstalarOSeleccionar()
     {

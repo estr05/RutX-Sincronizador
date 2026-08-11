@@ -177,7 +177,7 @@ como proceso hijo — no lo modifica:
 
 ```bash
 # publicar el launcher (junto al exe del sync)
-dotnet publish Rutx.Sincronizador.Admin -c Release
+dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release
 ```
 
 ### 🌐 Panel web de configuración (`/admin`)
@@ -226,7 +226,7 @@ mkdir publicacion
 # 1) El sincronizador (API + panel web /admin)
 dotnet publish Rutx.Sincronizador.csproj -c Release -o publicacion
 # 2) El launcher WinForms (debe quedar JUNTO al exe del sync)
-dotnet publish Rutx.Sincronizador.Admin -c Release -o publicacion
+dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -o publicacion
 
 # Resultado:
 # publicacion/

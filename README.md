@@ -133,7 +133,7 @@ candado por caja (`FolioLockService`), reintentos (`FirebirdRetryPolicy`) y
 ```json
 {
   "ConnectionStrings": {
-    "FirebirdConnection": "User=SYSDBA;Password=masterkey;Database=C:\\Microsip datos\\TU_BD.fdb;DataSource=localhost;Port=3050;Dialect=3;Pooling=true;",
+    "FirebirdConnection": "User=(...);Password=(...);Database=C:\\Microsip datos\\TU_BD.fdb;DataSource=localhost;Port=3050;Dialect=3;Pooling=true;",
     "SQLiteConnection": "Data Source=Data\\cola_offline.db"
   },
   "Jwt": { "Key": "...", "Issuer": "RutxSincronizador", "Audience": "RutxApps" },

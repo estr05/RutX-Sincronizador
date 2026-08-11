@@ -20,6 +20,11 @@ public sealed class SyncProcessController : IDisposable
     public event EventHandler<string>? LogLine;
     public event EventHandler? EstadoCambio;
 
+    // Raiz de una instalacion estandarizada (si el sync se resolvio desde un
+    // marcador instalacion.json). Se usa como WorkingDirectory al arrancar
+    // para que appsettings.json / wwwroot / Data caigan en la raiz.
+    private string? _instalacionRaiz;
+
     public bool IsRunning
     {
         get
@@ -33,6 +38,7 @@ public sealed class SyncProcessController : IDisposable
 
     /// <summary>
     /// Localiza el ejecutable del sincronizador en este orden:
+    ///  0) instalacion estandarizada (marcador instalacion.json en ProgramData\RUTX),
     ///  1) ruta persistida (si el usuario la eligió manualmente),
     ///  2) junto al exe de la Admin (carpeta de publicación),
     ///  3) bin del proyecto del sync (Debug/Release) usando rutas relativas
@@ -42,15 +48,31 @@ public sealed class SyncProcessController : IDisposable
     /// </summary>
     public string? ResolverSyncExe()
     {
+        // 0) Instalacion estandarizada (la mas confiable: el sync vive en
+        //    C:\ProgramData\RUTX\Sincronizador\Ejecutables\ y su raiz queda
+        //    registrada para usarla como WorkingDirectory).
+        var instalacion = InstalacionHelper.BuscarInstalacion();
+        if (instalacion != null && System.IO.File.Exists(instalacion.ExeSync))
+        {
+            _instalacionRaiz = instalacion.Raiz;
+            return instalacion.ExeSync;
+        }
+
         // 1) Ruta persistida por el usuario
         var persistida = LeerRutaPersistida();
         if (!string.IsNullOrWhiteSpace(persistida) && System.IO.File.Exists(persistida))
+        {
+            _instalacionRaiz = null;
             return persistida;
+        }
 
         // 2) Junto al exe de la Admin (producción: misma carpeta de publicación)
         var juntoAdmin = Path.Combine(AppContext.BaseDirectory, "Rutx.Sincronizador.exe");
         if (System.IO.File.Exists(juntoAdmin))
+        {
+            _instalacionRaiz = null;
             return juntoAdmin;
+        }
 
         var dirActual = Environment.CurrentDirectory;
         var baseDir = AppContext.BaseDirectory;
@@ -77,10 +99,25 @@ public sealed class SyncProcessController : IDisposable
         foreach (var c in candidatosRelativos.Concat(candidatosDirTrabajo))
         {
             if (System.IO.File.Exists(c))
+            {
+                _instalacionRaiz = null;
                 return c;
+            }
         }
         return null;
     }
+
+    /// <summary>
+    /// Ruta de la raiz de instalacion estandarizada (si el sync se resolvio
+    /// desde un marcador instalacion.json). Usado como WorkingDirectory.
+    /// </summary>
+    public string? InstalacionRaiz => _instalacionRaiz;
+
+    /// <summary>
+    /// Establece la raiz de instalacion manualmente (usado por el wizard de
+    /// instalacion justo despues de crear el marcador instalacion.json).
+    /// </summary>
+    public void DefinirInstalacionRaiz(string raiz) => _instalacionRaiz = raiz;
 
     /// <summary>
     /// Persiste la ruta del sync elegida manualmente para el próximo arranque.
@@ -114,17 +151,26 @@ public sealed class SyncProcessController : IDisposable
 
     /// <summary>
     /// Arranca el sincronizador como proceso hijo con la salida redirigida.
+    /// WorkingDirectory por defecto: la raiz de instalacion estandarizada (si
+    /// el exe se resolvio desde un marcador instalacion.json), si no la carpeta
+    /// del exe. Se puede forzar con el parametro opcional (lo usa el wizard de
+    /// instalacion, que arranca con la raiz aun sin marcador creado).
     /// </summary>
-    public void Iniciar(string rutaExe)
+    public void Iniciar(string rutaExe, string? workingDirectory = null)
     {
         lock (_sync)
         {
             if (IsRunning) return;
 
+            var wd = workingDirectory
+                     ?? _instalacionRaiz
+                     ?? Path.GetDirectoryName(rutaExe)
+                     ?? AppContext.BaseDirectory;
+
             var psi = new ProcessStartInfo
             {
                 FileName = rutaExe,
-                WorkingDirectory = Path.GetDirectoryName(rutaExe) ?? AppContext.BaseDirectory,
+                WorkingDirectory = wd,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

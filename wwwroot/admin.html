@@ -200,6 +200,73 @@
   #toast.ok   { background: var(--primary); }
   #toast.err  { background: var(--danger); }
 
+  /* ===== Auditoria / Estado de compatibilidad ===== */
+  .audit-summary {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 4px 0 14px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+  .audit-count {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .audit-count b { font-size: 16px; }
+  .audit-count.red   { color: var(--red); }
+  .audit-count.amber { color: var(--amber); }
+  .audit-count.green { color: var(--green); }
+  #audit-estado {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .audit-seccion {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin: 14px 0 6px;
+  }
+  .audit-seccion:first-child { margin-top: 0; }
+  .audit-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .audit-item:nth-child(even) { background: var(--bg); }
+  .audit-item .a-nombre { font-weight: 600; color: var(--text); min-width: 230px; }
+  .audit-item .a-msg { color: var(--text-muted); font-size: 12px; }
+  .dot {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    margin-top: 4px;
+    box-shadow: 0 0 0 3px rgba(0,0,0,.04);
+  }
+  .dot.red   { background: var(--red); }
+  .dot.amber { background: var(--amber); }
+  .dot.green { background: var(--green); }
+  .audit-list {
+    max-height: 300px;
+    overflow: auto;
+    padding-right: 6px;
+  }
+  .audit-empty { font-size: 13px; color: var(--text-muted); padding: 8px 2px; }
+
   .footer-note {
     text-align: center;
     font-size: 12px;
@@ -307,6 +374,26 @@
         <div class="field"><label>Delay base (s)</label><input type="number" data-cfg="ColaOffline.BaseDelaySegundos"></div>
         <div class="field"><label>Delay máx. (s)</label><input type="number" data-cfg="ColaOffline.MaxDelaySegundos"></div>
         <div class="field"><label>Ruta SQLite</label><input type="text" data-cfg="ColaOffline.RutaSqlite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Auditoria / Estado ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>Estado de compatibilidad</h2>
+      <span class="sub">BD Microsip vs sincronizador · se re-evalúa al abrir</span>
+    </div>
+    <div class="card-body">
+      <div class="audit-summary">
+        <div class="audit-count red">🔴 <b id="audit-fallos">–</b> faltantes</div>
+        <div class="audit-count amber">🟡 <b id="audit-avisos">–</b> avisos</div>
+        <div class="audit-count green">🟢 <b id="audit-ok">–</b> ok</div>
+        <span id="audit-estado">⏳ Re-evaluando…</span>
+      </div>
+      <div class="audit-list" id="audit-list">
+        <div class="audit-empty">Ejecutando la auditoría de compatibilidad…</div>
       </div>
     </div>
   </section>
@@ -507,14 +594,97 @@ async function chequearApi() {
   }
 }
 
+/* ---------- Auditoria / Estado de compatibilidad ---------- */
+function dotColor(estado) {
+  if (estado === 'ok') return 'green';
+  if (estado === 'aviso') return 'amber';
+  return 'red';
+}
+
+function renderAuditoria(data) {
+  const ok = data.ok ?? 0;
+  const avisos = data.avisos ?? 0;
+  const fallos = data.fallos ?? 0;
+  const items = data.items ?? [];
+
+  document.getElementById('audit-fallos').textContent = fallos;
+  document.getElementById('audit-avisos').textContent = avisos;
+  document.getElementById('audit-ok').textContent = ok;
+
+  const estado = document.getElementById('audit-estado');
+  if (fallos > 0) { estado.textContent = '🔴 Hay configuración pendiente'; estado.style.color = 'var(--red)'; }
+  else if (avisos > 0) { estado.textContent = '🟡 Funciona con avisos'; estado.style.color = 'var(--amber)'; }
+  else { estado.textContent = '🟢 Todo en orden'; estado.style.color = 'var(--green)'; }
+
+  const lista = document.getElementById('audit-list');
+  lista.innerHTML = '';
+  if (!items.length) {
+    lista.innerHTML = '<div class="audit-empty">La auditoría no devolvió elementos.</div>';
+    return;
+  }
+
+  // Agrupar por seccion (Conexion, Tablas, Triggers, FK, IDs, Datos, Coherencia)
+  const grupos = {};
+  items.forEach(it => {
+    const sec = it.seccion || 'General';
+    (grupos[sec] = grupos[sec] || []).push(it);
+  });
+
+  Object.keys(grupos).forEach(sec => {
+    const h = document.createElement('div');
+    h.className = 'audit-seccion';
+    h.textContent = sec;
+    lista.appendChild(h);
+    grupos[sec].forEach(it => {
+      const row = document.createElement('div');
+      row.className = 'audit-item';
+      const dot = document.createElement('span');
+      dot.className = 'dot ' + dotColor(it.estado);
+      const nombre = document.createElement('span');
+      nombre.className = 'a-nombre';
+      nombre.textContent = it.item || '';
+      const msg = document.createElement('span');
+      msg.className = 'a-msg';
+      msg.textContent = it.mensaje || '';
+      row.appendChild(dot);
+      row.appendChild(nombre);
+      row.appendChild(msg);
+      lista.appendChild(row);
+    });
+  });
+}
+
+// Re-evaluacion AUTOMATICA al abrir el panel: corre la auditoria en vivo
+// (POST /api/v2/admin/auditoria) y pinta los puntitos. El endpoint es
+// 100% solo lectura contra la BD de Microsip.
+async function cargarAuditoria() {
+  const estado = document.getElementById('audit-estado');
+  estado.textContent = '⏳ Re-evaluando…';
+  estado.style.color = 'var(--text-muted)';
+  try {
+    const res = await fetch('/api/v2/admin/auditoria', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      estado.textContent = '🔴 No se pudo auditar: ' + (err?.detalle || 'HTTP ' + res.status);
+      estado.style.color = 'var(--red)';
+      return;
+    }
+    renderAuditoria(await res.json());
+  } catch (e) {
+    estado.textContent = '🔴 Error de conexión al auditar: ' + e.message;
+    estado.style.color = 'var(--red)';
+  }
+}
+
 /* ---------- Bindings ---------- */
 document.getElementById('btn-guardar').addEventListener('click', guardarConfig);
 document.getElementById('btn-sync').addEventListener('click', syncMatutino);
-document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); });
+document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); cargarAuditoria(); });
 
 cargarConfig();
 cargarVendedores();
 chequearApi();
+cargarAuditoria();
 setInterval(chequearApi, 8000);
 </script>
 </body>

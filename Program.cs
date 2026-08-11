@@ -122,6 +122,9 @@ builder.Services.AddScoped<ICreditoService, CreditoService>();
 // Servicio de resolucion dinamica de Foreign Keys
 builder.Services.AddScoped<IFkResolverService, FkResolverService>();
 
+// Auditoria de compatibilidad BD Microsip <-> sincronizador (wizard + panel web)
+builder.Services.AddScoped<IAuditoriaCompatibilidadService, AuditoriaCompatibilidadService>();
+
 // Cola Offline (Eduardo)
 string sqlitePath = builder.Configuration.GetValue<string>("ColaOffline:RutaSqlite") ?? "Data/cola_offline.db";
 

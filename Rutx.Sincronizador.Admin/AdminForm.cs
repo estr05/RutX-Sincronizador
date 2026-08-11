@@ -38,24 +38,17 @@ public class AdminForm : Form
 
     public AdminForm()
     {
-        // Localizar el exe del sync (o pedirlo manualmente)
+        // Localizar el exe del sync (instalacion estandarizada, ruta persistida,
+        // carpeta del launcher o bin del proyecto en desarrollo)
         _rutaExe = _sync.ResolverSyncExe() ?? "";
+
+        // PRIMER ARRANQUE sin sync localizado: abrir el asistente de instalacion
+        // (elige carpeta, BD y credenciales, instala y audita). Si el usuario lo
+        // cancela, se cae al selector manual de siempre y la ventana sigue
+        // mostrandose con el aviso de sync no localizado.
         if (string.IsNullOrEmpty(_rutaExe))
         {
-            MessageBox.Show(
-                "No se encontro Rutx.Sincronizador.exe automáticamente.\nSe abrirá un selector para ubicarlo.",
-                "RUTX · Sincronizador", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            using var dialogo = new OpenFileDialog
-            {
-                Filter = "Sincronizador|Rutx.Sincronizador.exe|Todos|*.exe",
-                Title = "Ubica Rutx.Sincronizador.exe"
-            };
-            if (dialogo.ShowDialog(this) == DialogResult.OK)
-            {
-                _rutaExe = dialogo.FileName;
-                // Recordar la ruta para el próximo arranque
-                _sync.GuardarRuta(_rutaExe);
-            }
+            InstalarOSeleccionar();
         }
 
         Text = "RUTX · Sincronizador";
@@ -165,6 +158,47 @@ public class AdminForm : Form
         else
             AgregarLog("ADVERTENCIA: no se localizo Rutx.Sincronizador.exe");
         AgregarLog("Presiona ▶ Iniciar para arrancar la API (puerto 5047).");
+    }
+
+    /// <summary>
+    /// Primer arranque sin sincronizador localizado: ofrece el asistente de
+    /// instalacion estandarizada; si el usuario lo cancela, cae al selector
+    /// manual de siempre (OpenFileDialog). Devuelve el DialogResult del wizard
+    /// o Cancel si se aborto todo.
+    /// </summary>
+    private DialogResult InstalarOSeleccionar()
+    {
+        // Carpeta fuente del build del sync: en produccion se publica junto al
+        // launcher (misma carpeta). En desarrollo ResolverSyncExe ya la ubico;
+        // si no, el wizard permite localizar Rutx.Sincronizador.exe a mano.
+        var carpetaFuente = !string.IsNullOrEmpty(_rutaExe)
+            ? Path.GetDirectoryName(_rutaExe) ?? AppContext.BaseDirectory
+            : AppContext.BaseDirectory;
+
+        using var wizard = new InstalacionWizardForm(carpetaFuente, onInstalada: (exeSync, raiz) =>
+        {
+            _rutaExe = exeSync;
+            _sync.GuardarRuta(exeSync);
+            _sync.DefinirInstalacionRaiz(raiz);
+        });
+
+        var resultado = wizard.ShowDialog(this);
+        if (resultado == DialogResult.OK && !string.IsNullOrEmpty(_rutaExe))
+            return resultado;
+
+        // El usuario no instalo: flujo anterior (selector manual)
+        using var dialogo = new OpenFileDialog
+        {
+            Filter = "Sincronizador|Rutx.Sincronizador.exe|Todos|*.exe",
+            Title = "Ubica Rutx.Sincronizador.exe"
+        };
+        if (dialogo.ShowDialog(this) == DialogResult.OK)
+        {
+            _rutaExe = dialogo.FileName;
+            _sync.GuardarRuta(_rutaExe);
+            return DialogResult.OK;
+        }
+        return DialogResult.Cancel;
     }
 
     private static Button CrearBoton(string texto, Color fondo, Color frente)

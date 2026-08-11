@@ -18,18 +18,23 @@ public class AdminController : ControllerBase
 {
     private readonly IConfiguration _configuration;
     private readonly IRouteService _routeService;
+    private readonly IAuditoriaCompatibilidadService _auditoriaService;
     private readonly ILogger<AdminController> _logger;
     private readonly string _appSettingsPath;
+    private readonly string _contentRootPath;
 
     public AdminController(
         IConfiguration configuration,
         IRouteService routeService,
+        IAuditoriaCompatibilidadService auditoriaService,
         IHostEnvironment environment,
         ILogger<AdminController> logger)
     {
         _configuration = configuration;
         _routeService = routeService;
+        _auditoriaService = auditoriaService;
         _logger = logger;
+        _contentRootPath = environment.ContentRootPath;
 
         // Resolver el MISMO archivo que el host esta leyendo: content root
         // (directorio del proyecto en dev, carpeta de publish en produccion).
@@ -203,6 +208,71 @@ public class AdminController : ControllerBase
                 message = "Error al ejecutar la sincronizacion matutina.",
                 detalle = ex.Message
             });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/v2/admin/auditoria
+    /// Ejecuta la auditoria de compatibilidad EN VIVO contra la BD configurada
+    /// (mismo servicio que usa el wizard de instalacion). 100% solo lectura.
+    /// Guarda el resultado en auditoria_resultado.json (raiz del ContentRoot)
+    /// para que el panel lo reutilice sin reconectar.
+    /// </summary>
+    [HttpPost("auditoria")]
+    public async Task<IActionResult> EjecutarAuditoria()
+    {
+        var connectionString = _configuration.GetConnectionString("FirebirdConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return BadRequest(new { message = "No hay cadena de conexion Firebird configurada." });
+
+        try
+        {
+            var resultado = await _auditoriaService.EjecutarAsync(connectionString);
+
+            try
+            {
+                var rutaJson = Path.Combine(_contentRootPath, "auditoria_resultado.json");
+                var json = JsonSerializer.Serialize(resultado, new JsonSerializerOptions { WriteIndented = true });
+                await System.IO.File.WriteAllTextAsync(rutaJson, json);
+                _logger.LogInformation("Auditoria guardada en {Ruta}", rutaJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "No se pudo guardar auditoria_resultado.json");
+            }
+
+            return Ok(resultado);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error ejecutando la auditoria de compatibilidad");
+            return StatusCode(500, new
+            {
+                message = "Error al ejecutar la auditoria.",
+                detalle = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// GET /api/v2/admin/auditoria/resultado
+    /// Devuelve el ultimo resultado de auditoria guardado (JSON en la raiz).
+    /// </summary>
+    [HttpGet("auditoria/resultado")]
+    public IActionResult ObtenerAuditoriaGuardada()
+    {
+        try
+        {
+            var rutaJson = Path.Combine(_contentRootPath, "auditoria_resultado.json");
+            if (!System.IO.File.Exists(rutaJson))
+                return NotFound(new { message = "No hay auditoria guardada todavia. Ejecuta POST /api/v2/admin/auditoria." });
+
+            return Content(System.IO.File.ReadAllText(rutaJson), "application/json");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error leyendo auditoria_resultado.json");
+            return StatusCode(500, new { message = "No se pudo leer la auditoria guardada: " + ex.Message });
         }
     }
 

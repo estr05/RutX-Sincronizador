@@ -41,7 +41,9 @@ public static class FbConexionHelper
             }
 
             var cabecera = new byte[4];
-            fs.Read(cabecera, 0, 4);
+            // ReadExactly: garantiza leer los 4 bytes (CA2022), lanza EOS solo si
+            // el archivo termina antes (ya descartado con la validacion de Length).
+            fs.ReadExactly(cabecera);
 
             // Firma Firebird: bytes 0x4F 0x54 0x59 0x36 ("OTY6") o 0x4F 0x54 0x59 0x33 ("OTY3")
             bool firma = (cabecera[0] == 0x4F && cabecera[1] == 0x54 && cabecera[2] == 0x59 &&

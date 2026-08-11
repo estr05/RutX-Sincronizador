@@ -50,20 +50,20 @@ public class InstalacionWizardForm : Form
     private readonly Button _btnSiguiente;
     private readonly Button _btnFinalizar;
 
-    // Paso 1
-    private TextBox _txtRaiz;
+    // Paso 1 (se asignan en CrearPanel* llamado desde el constructor)
+    private TextBox _txtRaiz = null!;
     // Paso 2
-    private TextBox _txtFdb;
-    private TextBox _txtUsuario;
-    private TextBox _txtPassword;
-    private Label _lblConexion;
-    private Button _btnProbar;
+    private TextBox _txtFdb = null!;
+    private TextBox _txtUsuario = null!;
+    private TextBox _txtPassword = null!;
+    private Label _lblConexion = null!;
+    private Button _btnProbar = null!;
     // Paso 3
-    private RichTextBox _txtProgreso;
-    private Button _btnInstalar;
-    private Label _lblContadores;
+    private RichTextBox _txtProgreso = null!;
+    private Button _btnInstalar = null!;
+    private Label _lblContadores = null!;
     // Paso 4
-    private Label _lblResumen;
+    private Label _lblResumen = null!;
 
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(150) };
 

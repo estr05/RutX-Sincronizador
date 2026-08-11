@@ -59,10 +59,17 @@ Máquina de desarrollo                PC del cliente
 
 ### 2.1 Clonar el repositorio
 
+Clona la rama del instalador (`feature/interfaz-admin`). La rama por defecto
+(`dev`) es la versión estable **sin** el instalador:
+
 ```bash
-git clone https://github.com/estr05/RutX-Sincronizador.git
+git clone -b feature/interfaz-admin https://github.com/estr05/RutX-Sincronizador.git
 cd RutX-Sincronizador
 ```
+
+> **Si ya clonaste sin la rama** y no encuentras la subcarpeta
+> `Rutx.Sincronizador.Admin`: cámbiate a la rama correcta con
+> `git checkout feature/interfaz-admin`.
 
 > **Si falla el clonado** (error de red o credenciales): verifica la conexión a
 > internet y los permisos de lectura del repositorio.
@@ -266,6 +273,7 @@ Confirma que la instalación quedó operativa:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| El clon no tiene la subcarpeta `Rutx.Sincronizador.Admin` | Estás en la rama por defecto (`dev`), que no incluye el instalador | `git checkout feature/interfaz-admin` y vuelve a publicar (sección 2) |
 | "Ya hay una instancia del Sincronizador ejecutándose" | Otra instancia activa o proceso huérfano en :5047 | Cierra el launcher/terminal anterior o ejecuta `taskkill /F /PID <pid>` sobre el proceso que escucha en 5047 |
 | "No se localizó `Rutx.Sincronizador.exe`" | El launcher no encuentra el ejecutable del sync | Verifica que ambos .exe estén en la misma carpeta (`C:\Sincronizador`); vuelve a ejecutar el asistente o ubica el archivo manualmente |
 | "Publicador desconocido" al ejecutar | Ejecutables sin firma digital | **Más información → Ejecutar de todas formas** |

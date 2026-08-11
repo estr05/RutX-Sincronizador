@@ -98,9 +98,9 @@ publicacion/
 ```
 
 > **Si la PC del cliente no tendrá .NET Runtime instalado**, usa la versión
-> "todo adentro" (*self-contained*): abre una terminal en la carpeta y escribe
-> la única línea `publicar.bat selfcontained`. El paquete pesa más (≈150 MB),
-> pero no requiere instalar nada en el cliente.
+> "todo adentro" (*self-contained*): haz **doble clic en
+> `publicar_selfcontained.bat`**. El paquete pesa más (≈150 MB), pero no
+> requiere instalar nada en el cliente.
 
 > ❌ **No existe alternativa con comandos a mano.** Escribir `dotnet publish`
 > directamente ha causado typos (`--selfcontained` sin guion) y comandos
@@ -347,7 +347,7 @@ Para validar el flujo completo **sin una segunda máquina**, usa tu propia PC
 como si fuera la del cliente:
 
 1. Prepara el paquete (sección 2): doble clic en `publicar.bat`
-   (o `publicar.bat selfcontained` si quieres la versión completa).
+   (o `publicar_selfcontained.bat` para la versión "todo adentro").
 2. Copia la carpeta `publicacion` a una carpeta limpia de prueba
    (ej. `C:\PruebaCliente\`) — simula el USB y el disco del cliente.
 3. Ejecuta `C:\PruebaCliente\Rutx.Sincronizador.Admin.exe`.

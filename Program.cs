@@ -124,6 +124,16 @@ builder.Services.AddScoped<IFkResolverService, FkResolverService>();
 
 // Cola Offline (Eduardo)
 string sqlitePath = builder.Configuration.GetValue<string>("ColaOffline:RutaSqlite") ?? "Data/cola_offline.db";
+
+// La ruta de la cola SQLite es relativa al directorio de trabajo. Al ser
+// lanzado por el launcher (WorkingDirectory = carpeta del exe), la carpeta
+// Data/ puede no existir ahi y SQLite falla con 'Error 14: unable to open
+// database file'. Se resuelve contra el ContentRoot y se crea la carpeta.
+if (!Path.IsPathRooted(sqlitePath))
+    sqlitePath = Path.Combine(builder.Environment.ContentRootPath, sqlitePath);
+var sqliteDir = Path.GetDirectoryName(sqlitePath);
+if (!string.IsNullOrWhiteSpace(sqliteDir))
+    Directory.CreateDirectory(sqliteDir);
 string sqliteConnectionString = $"Data Source={sqlitePath}";
 
 builder.Services.AddSingleton<IColaOfflineRepository>(new ColaOfflineRepository(sqliteConnectionString));

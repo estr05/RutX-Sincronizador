@@ -12,9 +12,10 @@ public static class FbConexionHelper
 {
     /// <summary>
     /// True si el archivo existe y empieza con la firma de una BD Firebird.
-    /// La firma real es page_type=0x01 (header page) + checksum 12345 (0x39 0x30
-    /// big-endian) en los primeros 4 bytes: 01 00 39 30. Compatible con todas las
-    /// versiones: Firebird 1.x, 2.x, 3.0, 4.0, 5.0.
+    /// La primera pagina de un .fdb es siempre una header page (page_type=0x01).
+    /// Los bytes 2-3 (checksum) pueden variar segun la configuracion de Firebird,
+    /// por lo que solo se valida el page type. Compatible con todas las versiones:
+    /// Firebird 1.x, 2.x, 3.0, 4.0, 5.0.
     /// </summary>
     public static bool ArchivoFdbValido(string rutaFdb, out string mensaje)
     {
@@ -45,10 +46,11 @@ public static class FbConexionHelper
             // el archivo termina antes (ya descartado con la validacion de Length).
             fs.ReadExactly(cabecera);
 
-            // Firma Firebird: page_type=0x01 (header page) + checksum 12345 (0x39 0x30 big-endian).
+            // Firma Firebird: page_type=0x01 (header page) en el byte 0.
+            // Los bytes 2-3 (checksum) pueden ser 00 00 o 39 30 segun la
+            // configuracion, por lo que solo se valida el page type.
             // Compatible con todas las versiones: Firebird 1.x, 2.x, 3.0, 4.0, 5.0.
-            bool firma = cabecera[0] == 0x01 && cabecera[1] == 0x00 &&
-                         cabecera[2] == 0x39 && cabecera[3] == 0x30;
+            bool firma = cabecera[0] == 0x01 && cabecera[1] == 0x00;
 
             if (!firma)
             {

@@ -26,6 +26,15 @@ Máquina de desarrollo                PC del cliente
 
 ---
 
+> ⚠️ **LEE ESTO PRIMERO — NO escribas `dotnet publish` a mano.**
+> Para generar los ejecutables solo haz **doble clic en `publicar.bat`**
+> (está en la raíz de la carpeta `RutX-Sincronizador`). Escribir los comandos
+> a mano ha causado errores una y otra vez (`--selfcontained` sin guion,
+> comandos cortados a la mitad al pegarlos, etc.). El .bat hace exactamente lo
+> mismo y sin errores. Detalle en la sección 2.2.
+
+---
+
 ## 1. Requisitos previos
 
 ### En la máquina de desarrollo (donde se prepara el paquete)

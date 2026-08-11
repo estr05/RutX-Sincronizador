@@ -147,6 +147,57 @@ candado por caja (`FolioLockService`), reintentos (`FirebirdRetryPolicy`) y
 
 ---
 
+## 🖥️ Interfaz de administración
+
+El sincronizador incluye una **interfaz de administración** pensada para configurar y
+supervisar la instalación en cada cliente, **sin tocar archivos a mano** y **sin afectar
+el contrato móvil** (`/api/v1/*` queda congelado).
+
+```
+┌───────────────────────────────┐
+│  Rutx.Sincronizador.Admin.exe │ ← Launcher WinForms (uso diario)
+│  [▶ Iniciar] [⏹ Detener]      │    botones arriba + logs verdes al centro
+│  [⚙ Conf (web)]               │
+├───────────────────────────────┤
+│  Sincronizador (:5047)        │
+│  ├── /api/v1/*  → app móvil   │ ← contrato congelado
+│  └── /admin     → panel web   │ ← config bajo demanda
+└───────────────────────────────┘
+```
+
+### 🪟 Launcher Windows (`Rutx.Sincronizador.Admin.exe`)
+
+Proyecto **WinForms** (`Rutx.Sincronizador.Admin/`) que **controla** el sincronizador
+como proceso hijo — no lo modifica:
+
+- **▶ Iniciar** — arranca `Rutx.Sincronizador.exe` y captura su consola.
+- **⏹ Detener** — detiene el proceso (el lock anti-huérfanos auto-limpia residuos).
+- **⚙ Conf (web)** — abre el panel web `http://localhost:5047/admin`.
+- **Logs en verde** — INFO=verde, WARN=amarillo, ERROR=rojo (consola Windows).
+
+```bash
+# publicar el launcher (junto al exe del sync)
+dotnet publish Rutx.Sincronizador.Admin -c Release
+```
+
+### 🌐 Panel web de configuración (`/admin`)
+
+Servido por el propio sincronizador (`wwwroot/admin.html` + `Controllers/Web/AdminController.cs`).
+Se abre bajo demanda con el botón **Conf (web)** o con **`AbrirAdmin.bat`**.
+
+| Ruta | Función |
+|---|---|
+| `GET  /api/v2/admin/config` | Lee `appsettings.json` (BD, IDs, JWT, cola) |
+| `POST /api/v2/admin/config` | Guarda con **respaldo `.bak`** automático (reloadOnChange aplica en caliente) |
+| `GET  /api/v2/admin/vendedores` | Lista vendedores de Microsip para el desplegable |
+| `POST /api/v2/admin/sync-matutino` | Ejecuta la sincronización matutina (reutiliza `RouteService`) |
+
+> ⚠️ Seguridad: las rutas `/api/v2/admin/*` **no requieren autenticación** porque están
+> pensadas para uso local (localhost). No exponer el puerto 5047 a internet sin agregar
+> un mecanismo de autenticación.
+
+---
+
 ## 🗂️ Estructura del proyecto
 
 ```
@@ -158,11 +209,15 @@ sincronizador_rutx/
 │   ├── Movil/                      ← CONTRATO MÓVIL congelado: endpoints que usa la app RUTX
 │   ├── Compartidos/                ← Lógica útil para móvil y web (ej. alta de clientes)
 │   ├── Admin/                      ← Mantenimiento y diagnóstico (folios, cola, dbcompare)
-│   └── Web/                        ← (Vacía) endpoints futuros de la página web (/api/v2/*)
+│   └── Web/                        ← Panel de administración (/api/v2/admin/*) y web futura
+├── wwwroot/                        ← Panel web de configuración (admin.html)
+├── Rutx.Sincronizador.Admin/       ← Launcher WinForms (Iniciar/Detener/Conf + logs)
+├── AbrirAdmin.bat                  ← Acceso rápido al panel web (/admin)
 ├── Services/                       ← Lógica de negocio (VentaServicePv, RouteService,
 │                                      FirebirdAuthService, CobranzaService, CreditoService,
 │                                      FolioService, ColaOfflineService, FkResolverService...)
 ├── Models/                         ← DTOs y modelos JSON
+
 ├── Data/                           ← Repositorio de la cola offline SQLite
 ├── Middleware/                     ← Manejo de errores
 ├── Properties/launchSettings.json  ← Perfiles de arranque (Development, puertos)

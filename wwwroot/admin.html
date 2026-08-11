@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RUTX · Panel de Administración</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23003859'/><text x='16' y='22' font-family='Arial' font-size='15' font-weight='bold' fill='%23F6AD55' text-anchor='middle'>R</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary: #003859;
+    --primary-hover: #004C73;
+    --accent: #F6AD55;
+    --white: #FFFFFF;
+    --bg: #F9FAFB;
+    --border: #E5E7EB;
+    --danger: #EF4444;
+    --danger-hover: #DC2626;
+    --text: #1F2937;
+    --text-muted: #6B7280;
+    --green: #16A34A;
+    --amber: #D97706;
+    --red: #DC2626;
+    --console-bg: #0B1120;
+    --console-text: #E2E8F0;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;            /* Texto base */
+    font-weight: 400;
+    color: var(--text);
+    background: var(--bg);
+    min-height: 100vh;
+  }
+
+  /* ===== Header ===== */
+  .topbar {
+    background: var(--primary);
+    color: var(--white);
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  }
+  .topbar .brand { display: flex; align-items: baseline; gap: 12px; }
+  .topbar .brand h1 { font-size: 20px; font-weight: 700; letter-spacing: .3px; }
+  .topbar .brand span { font-size: 14px; font-weight: 400; color: #BFDBFE; }
+  .topbar .badge {
+    font-size: 12px; font-weight: 600;
+    background: rgba(246, 173, 85, .18);
+    color: var(--accent);
+    border: 1px solid rgba(246, 173, 85, .45);
+    padding: 5px 12px;
+    border-radius: 999px;
+  }
+
+  .container { max-width: 1100px; margin: 28px auto; padding: 0 24px; }
+
+  /* ===== Cards ===== */
+  .card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .card-header .tick {
+    width: 4px; height: 26px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .card-header h2 { font-size: 18px; font-weight: 600; color: var(--primary); }
+  .card-header .sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+  .card-body { padding: 22px; }
+
+  /* ===== Grid de formulario ===== */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+  .field label {
+    display: block;
+    font-size: 12px;            /* Texto extra pequeño: labels */
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-bottom: 6px;
+  }
+  .field.full { grid-column: 1 / -1; }
+  .field input, .field select {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;            /* Texto pequeño: tablas, campos */
+    font-weight: 400;
+    color: var(--text);
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 56, 89, .12);
+  }
+  .field .check {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    cursor: pointer;
+    font-size: 14px;
+    user-select: none;
+  }
+  .field .check:hover { border-color: var(--primary); }
+
+  /* ===== Botones ===== */
+  .actions {
+    display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .btn {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 22px;
+    cursor: pointer;
+    transition: background .15s ease, transform .05s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--primary); color: var(--white); }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-danger { background: var(--danger); color: var(--white); }
+  .btn-danger:hover { background: var(--danger-hover); }
+  .btn-ghost {
+    background: transparent;
+    color: var(--primary);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { border-color: var(--primary); background: #F0F5F8; }
+
+  /* ===== Consola de resultados (sync matutino) ===== */
+  .console {
+    background: var(--console-bg);
+    color: var(--console-text);
+    font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-top: 16px;
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    display: none;
+  }
+  .console .l-info  { color: #4ADE80; }   /* Verde: INFO */
+  .console .l-warn  { color: #FBBF24; }   /* Amarillo: WARN */
+  .console .l-error { color: #F87171; }   /* Rojo: ERROR */
+
+  /* ===== Toast ===== */
+  #toast {
+    position: fixed;
+    top: 18px; right: 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--white);
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity .2s ease, transform .2s ease;
+    pointer-events: none;
+    z-index: 1000;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.ok   { background: var(--primary); }
+  #toast.err  { background: var(--danger); }
+
+  .footer-note {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 18px 0 30px;
+  }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: var(--white);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <h1>RUTX</h1>
+    <span>Panel de Administración · Sincronizador</span>
+  </div>
+  <div class="badge" id="badge-api">⏳ Conectando…</div>
+</header>
+
+<main class="container">
+
+  <!-- ================= Conexión BD ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>Conexión a la base de datos</h2>
+      <span class="sub">Firebird de Microsip</span>
+    </div>
+    <div class="card-body">
+      <div class="grid">
+        <div class="field full">
+          <label>Cadena Firebird (BD del ERP)</label>
+          <input type="text" id="cfg.ConnectionStrings.FirebirdConnection" data-cfg="ConnectionStrings.FirebirdConnection" placeholder="User=SYSDBA;Password=…;Database=C:\…\MI_BD.fdb;DataSource=localhost;Port=3050;…">
+        </div>
+        <div class="field full">
+          <label>Cadena SQLite (cola offline)</label>
+          <input type="text" id="cfg.ConnectionStrings.SQLiteConnection" data-cfg="ConnectionStrings.SQLiteConnection" placeholder="Data Source=Data\cola_offline.db">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= IDs Microsip ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>IDs Microsip</h2>
+      <span class="sub">MicrosipSettings</span>
+    </div>
+    <div class="card-body">
+      <div class="grid">
+        <div class="field"><label>Moneda</label><input type="number" data-cfg="MicrosipSettings.DefaultMonedaId"></div>
+        <div class="field"><label>Condición de pago</label><input type="number" data-cfg="MicrosipSettings.DefaultCondPagoId"></div>
+        <div class="field"><label>Sucursal</label><input type="number" data-cfg="MicrosipSettings.DefaultSucursalId"></div>
+        <div class="field"><label>Almacén</label><input type="number" data-cfg="MicrosipSettings.DefaultAlmacenId"></div>
+        <div class="field"><label>Impuesto</label><input type="number" data-cfg="MicrosipSettings.DefaultImpuestoId"></div>
+        <div class="field"><label>Precio empresa</label><input type="number" data-cfg="MicrosipSettings.DefaultPrecioEmpresaId"></div>
+        <div class="field"><label>Forma de cobro</label><input type="number" data-cfg="MicrosipSettings.DefaultFormaCobroId"></div>
+        <div class="field"><label>Cajero (fallback)</label><input type="number" data-cfg="MicrosipSettings.DefaultCajeroId"></div>
+        <div class="field"><label>Concepto cobro</label><input type="number" data-cfg="MicrosipSettings.DefaultConceptoCobroId"></div>
+        <div class="field">
+          <label>Aplicar venta automática</label>
+          <label class="check"><input type="checkbox" data-cfg-check="MicrosipSettings.AplicarVentaAutomatica"> Al registrar, aplicar documento (APLICADO='S')</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= JWT ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>Seguridad (JWT)</h2>
+      <span class="sub">Autenticación de la API</span>
+    </div>
+    <div class="card-body">
+      <div class="grid">
+        <div class="field full"><label>Clave secreta</label><input type="text" data-cfg="Jwt.Key" placeholder="CAMBIA_ESTA_CLAVE_EN_PRODUCCION"></div>
+        <div class="field"><label>Issuer</label><input type="text" data-cfg="Jwt.Issuer"></div>
+        <div class="field"><label>Audience</label><input type="text" data-cfg="Jwt.Audience"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Cola offline ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>Cola offline</h2>
+      <span class="sub">Reintentos del servidor</span>
+    </div>
+    <div class="card-body">
+      <div class="grid">
+        <div class="field"><label>Intervalo proceso (s)</label><input type="number" data-cfg="ColaOffline.IntervaloProcesoSegundos"></div>
+        <div class="field"><label>Máx. intentos</label><input type="number" data-cfg="ColaOffline.MaxIntentos"></div>
+        <div class="field"><label>Delay base (s)</label><input type="number" data-cfg="ColaOffline.BaseDelaySegundos"></div>
+        <div class="field"><label>Delay máx. (s)</label><input type="number" data-cfg="ColaOffline.MaxDelaySegundos"></div>
+        <div class="field"><label>Ruta SQLite</label><input type="text" data-cfg="ColaOffline.RutaSqlite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Acciones ================= -->
+  <section class="card">
+    <div class="card-header">
+      <div class="tick"></div>
+      <h2>Acciones</h2>
+      <span class="sub">Sincronización matutina</span>
+    </div>
+    <div class="card-body">
+      <div class="grid">
+        <div class="field">
+          <label>Vendedor</label>
+          <select id="select-vendedor"><option value="">Cargando vendedores…</option></select>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:18px;">
+        <button class="btn btn-primary" id="btn-guardar">💾 Guardar configuración</button>
+        <button class="btn btn-primary" id="btn-sync">📡 Iniciar sync matutino</button>
+        <button class="btn btn-ghost" id="btn-recargar">↻ Recargar</button>
+      </div>
+      <div class="console" id="console"></div>
+    </div>
+  </section>
+
+  <p class="footer-note">RUTX · Panel de administración local · los cambios se aplican en caliente (reloadOnChange)</p>
+</main>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+let configActual = null;
+
+/* ---------- Helpers de JSON por ruta ---------- */
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+function setPath(obj, path, value) {
+  const keys = path.split('.');
+  let o = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (typeof o[keys[i]] !== 'object' || o[keys[i]] === null) o[keys[i]] = {};
+    o = o[keys[i]];
+  }
+  o[keys[keys.length - 1]] = value;
+}
+
+/* ---------- Toast ---------- */
+let toastTimer = null;
+function toast(msg, tipo) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + (tipo || 'ok');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3500);
+}
+
+/* ---------- Cargar configuración ---------- */
+async function cargarConfig() {
+  try {
+    const res = await fetch('/api/v2/admin/config');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    configActual = await res.json();
+    document.querySelectorAll('[data-cfg]').forEach(inp => {
+      const v = getPath(configActual, inp.dataset.cfg);
+      inp.value = (v === undefined || v === null) ? '' : v;
+    });
+    document.querySelectorAll('[data-cfg-check]').forEach(inp => {
+      const v = getPath(configActual, inp.dataset.cfgCheck);
+      inp.checked = v === true;
+    });
+    toast('Configuración cargada');
+  } catch (e) {
+    toast('No se pudo leer la configuración: ' + e.message, 'err');
+  }
+}
+
+/* ---------- Cargar vendedores ---------- */
+async function cargarVendedores() {
+  const sel = document.getElementById('select-vendedor');
+  try {
+    const res = await fetch('/api/v2/admin/vendedores');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const lista = await res.json();
+    sel.innerHTML = '';
+    if (!lista || lista.length === 0) {
+      sel.innerHTML = '<option value="">Sin vendedores (¿BD configurada?)</option>';
+      return;
+    }
+    lista.forEach(v => {
+      const op = document.createElement('option');
+      op.value = v.vendedor_id;
+      op.textContent = v.nombre + ' (ID ' + v.vendedor_id + ')';
+      sel.appendChild(op);
+    });
+  } catch (e) {
+    sel.innerHTML = '<option value="">No se pudieron cargar vendedores</option>';
+  }
+}
+
+/* ---------- Guardar configuración ---------- */
+async function guardarConfig() {
+  if (!configActual) { toast('Primero carga la configuración', 'err'); return; }
+  const btn = document.getElementById('btn-guardar');
+  btn.disabled = true;
+
+  // Armar una copia mínima con lo que se edita
+  const nuevo = {
+    ConnectionStrings: { FirebirdConnection: '', SQLiteConnection: '' },
+    Jwt: { Key: '', Issuer: '', Audience: '' },
+    MicrosipSettings: {},
+    ColaOffline: {}
+  };
+  document.querySelectorAll('[data-cfg]').forEach(inp => {
+    const path = inp.dataset.cfg;
+    let val = inp.value.trim();
+    if (inp.type === 'number') val = val === '' ? null : Number(val);
+    setPath(nuevo, path, val);
+  });
+  document.querySelectorAll('[data-cfg-check]').forEach(inp => {
+    setPath(nuevo, inp.dataset.cfgCheck, inp.checked);
+  });
+
+  // Conservar arreglos y campos no editados del archivo real
+  if (configActual.MicrosipSettings && Array.isArray(configActual.MicrosipSettings.CreditFormaCobroIds)) {
+    nuevo.MicrosipSettings.CreditFormaCobroIds = configActual.MicrosipSettings.CreditFormaCobroIds;
+  }
+
+  try {
+    const res = await fetch('/api/v2/admin/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nuevo)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
+    toast('✔ Configuración guardada (respaldo .bak creado)');
+  } catch (e) {
+    toast('Error al guardar: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- Sync matutino ---------- */
+function lineaConsola(texto, nivel) {
+  const c = document.getElementById('console');
+  c.style.display = 'block';
+  const div = document.createElement('div');
+  div.className = 'l-' + (nivel || 'info');
+  div.textContent = '[' + new Date().toLocaleTimeString('es-MX', { hour12: false }) + '] ' + texto;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+async function syncMatutino() {
+  const sel = document.getElementById('select-vendedor');
+  const vid = sel.value;
+  if (!vid) { toast('Selecciona un vendedor', 'err'); return; }
+  const btn = document.getElementById('btn-sync');
+  btn.disabled = true;
+  const consoleEl = document.getElementById('console');
+  consoleEl.style.display = 'block';
+  consoleEl.innerHTML = '';
+  lineaConsola('Iniciando sync matutino para vendedor ' + vid + '…', 'info');
+  try {
+    const res = await fetch('/api/v2/admin/sync-matutino', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vendedor_id: Number(vid) })
+    });
+    const data = await res.json();
+    if (!res.ok) { lineaConsola('Error: ' + (data.message || 'HTTP ' + res.status), 'error'); return; }
+    lineaConsola('✔ Sincronización completada:', 'info');
+    lineaConsola(JSON.stringify(data, null, 2), 'info');
+    toast('Sync matutino completado');
+  } catch (e) {
+    lineaConsola('Error de conexión: ' + e.message, 'error');
+    toast('Error en sync matutino', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- Estado de la API ---------- */
+async function chequearApi() {
+  const badge = document.getElementById('badge-api');
+  try {
+    const res = await fetch('/health', { cache: 'no-store' });
+    badge.textContent = res.ok ? '🟢 API activa' : '🔴 API no responde';
+    badge.style.color = res.ok ? '#4ADE80' : '#F87171';
+  } catch (e) {
+    badge.textContent = '🔴 API no responde';
+    badge.style.color = '#F87171';
+  }
+}
+
+/* ---------- Bindings ---------- */
+document.getElementById('btn-guardar').addEventListener('click', guardarConfig);
+document.getElementById('btn-sync').addEventListener('click', syncMatutino);
+document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); });
+
+cargarConfig();
+cargarVendedores();
+chequearApi();
+setInterval(chequearApi, 8000);
+</script>
+</body>
+</html>

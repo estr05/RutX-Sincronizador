@@ -152,11 +152,17 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseStaticFiles(); // Panel de administracion (wwwroot)
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
 // Health check: permite que la app móvil detecte si el servidor es accesible
+
+// Panel de administracion web (config bajo demanda).
+app.MapGet("/admin", () => Results.File(
+    Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "admin.html"),
+    "text/html"));
 app.MapGet("/health", () => Results.Ok(new { status = "ok", timestamp = DateTime.UtcNow }));
 
 app.Run();

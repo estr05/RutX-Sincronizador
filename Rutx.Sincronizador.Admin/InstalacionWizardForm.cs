@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using System.Net.Http;
 using System.Text.Json;
 
@@ -62,6 +63,12 @@ public class InstalacionWizardForm : Form
     private RichTextBox _txtProgreso = null!;
     private Button _btnInstalar = null!;
     private Label _lblContadores = null!;
+    private Label _lblEstadoInstalacion = null!;
+    private Label _lblSugerencia = null!;
+
+    // Indicadores de carga
+    private readonly SpinnerCircular _spinnerConexion = new();
+    private readonly SpinnerCircular _spinnerInstalar = new();
     // Paso 4
     private Label _lblResumen = null!;
 
@@ -299,8 +306,15 @@ public class InstalacionWizardForm : Form
             _lblConexion.ForeColor = AmarilloWarn;
             _btnSiguiente.Enabled = false;
 
-            // Verificar firma y probar credenciales por defecto (SYSDBA/masterkey)
-            await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
+            try
+            {
+                // Verificar firma y probar credenciales por defecto (SYSDBA/masterkey)
+                await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
+            }
+            catch (Exception ex)
+            {
+                MostrarErrorConexion("Error inesperado: " + ex.Message);
+            }
         };
 
         p.Controls.Add(_txtFdb);
@@ -334,17 +348,28 @@ public class InstalacionWizardForm : Form
         _btnProbar.Location = new Point(0, 300);
         _btnProbar.Click += async (_, _) =>
         {
-            _conexionOk = false;
-            _btnSiguiente.Enabled = false;
-            _lblConexion.Text = "Probando…";
-            _lblConexion.ForeColor = AmarilloWarn;
-            await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
+            try
+            {
+                _conexionOk = false;
+                _btnSiguiente.Enabled = false;
+                _lblConexion.Text = "Probando…";
+                _lblConexion.ForeColor = AmarilloWarn;
+                await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
+            }
+            catch (Exception ex)
+            {
+                MostrarErrorConexion("Error inesperado: " + ex.Message);
+            }
         };
         p.Controls.Add(_btnProbar);
 
+        _spinnerConexion.Location = new Point(0, 355);
+        _spinnerConexion.Visible = false;
+        p.Controls.Add(_spinnerConexion);
+
         _lblConexion = new Label
         {
-            Location = new Point(0, 352),
+            Location = new Point(30, 352),
             AutoSize = true,
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             ForeColor = TextoMuted,
@@ -378,6 +403,21 @@ public class InstalacionWizardForm : Form
         _btnInstalar.Click += async (_, _) => await InstalarAsync();
         p.Controls.Add(_btnInstalar);
 
+        _spinnerInstalar.Location = new Point(0, 152);
+        _spinnerInstalar.Visible = false;
+        p.Controls.Add(_spinnerInstalar);
+
+        _lblEstadoInstalacion = new Label
+        {
+            Location = new Point(30, 150),
+            AutoSize = true,
+            Font = new Font("Figtree", 10F, FontStyle.Bold),
+            ForeColor = AzulMarino,
+            Text = "Instalando y auditando… esto puede tardar unos segundos.",
+            Visible = false
+        };
+        p.Controls.Add(_lblEstadoInstalacion);
+
         _lblContadores = new Label
         {
             Location = new Point(0, 148),
@@ -387,6 +427,17 @@ public class InstalacionWizardForm : Form
             Text = ""
         };
         p.Controls.Add(_lblContadores);
+
+        _lblSugerencia = new Label
+        {
+            Location = new Point(0, 178),
+            AutoSize = true,
+            Font = new Font("Figtree", 9.5F, FontStyle.Regular),
+            ForeColor = Rojo,
+            Text = "Hay configuraciones pendientes (🔴). Ábrelas desde el panel web (⚙ Conf) o revisa el manual, sección 8.",
+            Visible = false
+        };
+        p.Controls.Add(_lblSugerencia);
 
         _txtProgreso = new RichTextBox
         {
@@ -475,6 +526,7 @@ public class InstalacionWizardForm : Form
             _lblContadores.Text = _instalado
                 ? $"  🔴 {_nFallos} faltantes    🟡 {_nAvisos} avisos    🟢 {_nOk} ok"
                 : "";
+            _lblSugerencia.Visible = false;
         }
         if (paso == 4)
             _lblResumen.Text = ResumenTexto();
@@ -534,14 +586,29 @@ public class InstalacionWizardForm : Form
         }
 
         _btnProbar.Enabled = false;
+        _spinnerConexion.Visible = true;
+        _spinnerConexion.Girar(true);
         try
         {
-            var (ok, mensaje) = await Task.Run(() =>
+            var tarea = Task.Run(() =>
             {
                 if (!FbConexionHelper.ArchivoFdbValido(_rutaFdb, out var msj))
                     return (false, msj);
                 return (FbConexionHelper.ProbarConexion(_rutaFdb, usuario, password, out var m), m);
             });
+
+            // Timeout duro: si el cliente Firebird se cuelga, nunca dejamos al
+            // usuario sin respuesta — siempre se muestra un mensaje claro.
+            var completada = await Task.WhenAny(tarea, Task.Delay(TimeSpan.FromSeconds(15)));
+            if (completada != tarea)
+            {
+                _lblConexion.Text = "🔴 El servidor tardó demasiado en responder. Verifica que Firebird esté en ejecución y que la ruta de la BD sea correcta.";
+                _lblConexion.ForeColor = Rojo;
+                _btnSiguiente.Enabled = false;
+                return;
+            }
+
+            var (ok, mensaje) = await tarea;
 
             _conexionOk = ok;
             if (ok)
@@ -559,7 +626,19 @@ public class InstalacionWizardForm : Form
         finally
         {
             _btnProbar.Enabled = true;
+            _spinnerConexion.Girar(false);
+            _spinnerConexion.Visible = false;
         }
+    }
+
+    private void MostrarErrorConexion(string mensaje)
+    {
+        _spinnerConexion.Girar(false);
+        _spinnerConexion.Visible = false;
+        _btnProbar.Enabled = true;
+        _lblConexion.Text = "🔴 " + mensaje;
+        _lblConexion.ForeColor = Rojo;
+        _btnSiguiente.Enabled = false;
     }
 
     private async Task InstalarAsync()
@@ -567,6 +646,9 @@ public class InstalacionWizardForm : Form
         _btnInstalar.Enabled = false;
         _btnAtras.Enabled = false;
         _txtProgreso.Clear();
+        _spinnerInstalar.Visible = true;
+        _spinnerInstalar.Girar(true);
+        _lblEstadoInstalacion.Visible = true;
         Log("Iniciando instalación…", "inf");
         Log("Origen (build del sync): " + _carpetaFuenteSync, "inf");
 
@@ -624,9 +706,16 @@ public class InstalacionWizardForm : Form
                 Log("Sincronizador detenido (puedes iniciarlo desde la ventana principal).", "inf");
             }
 
+            // Ocultar el indicador de carga antes de mostrar los contadores
+            // (evita superposicion visual de etiquetas en el mismo renglon).
+            _spinnerInstalar.Girar(false);
+            _spinnerInstalar.Visible = false;
+            _lblEstadoInstalacion.Visible = false;
+
             _lblContadores.Text = _auditoriaOk
                 ? $"  🔴 {_nFallos} faltantes    🟡 {_nAvisos} avisos    🟢 {_nOk} ok"
                 : "  Auditoría no ejecutada — desde el panel web (⚙ Conf) se re-evalúa al abrir.";
+            _lblSugerencia.Visible = _auditoriaOk && _nFallos > 0;
             _btnSiguiente.Enabled = true;
         }
         catch (Exception ex)
@@ -639,6 +728,9 @@ public class InstalacionWizardForm : Form
         {
             _btnInstalar.Enabled = true;
             _btnAtras.Enabled = true;
+            _spinnerInstalar.Girar(false);
+            _spinnerInstalar.Visible = false;
+            _lblEstadoInstalacion.Visible = false;
         }
     }
 
@@ -812,5 +904,52 @@ public class InstalacionWizardForm : Form
         _txtProgreso.AppendText("[" + DateTime.Now.ToString("HH:mm:ss") + "] " + linea + "\n");
         _txtProgreso.SelectionColor = ConsolaTexto;
         _txtProgreso.ScrollToCaret();
+    }
+
+    // ==================================================================
+    // CONTROL: circulo de carga (spinner) pintado a mano
+    // ==================================================================
+
+    private sealed class SpinnerCircular : Control
+    {
+        private readonly System.Windows.Forms.Timer _timer;
+        private float _angulo;
+
+        public SpinnerCircular()
+        {
+            Size = new Size(22, 22);
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+            _timer = new System.Windows.Forms.Timer { Interval = 16 };
+            _timer.Tick += (_, _) =>
+            {
+                _angulo = (_angulo + 6) % 360;
+                Invalidate();
+            };
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _timer.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public void Girar(bool activo)
+        {
+            _timer.Enabled = activo;
+            if (activo) Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var pen = new Pen(AzulMarino, 3)
+            {
+                StartCap = LineCap.Round,
+                EndCap = LineCap.Round
+            };
+            e.Graphics.DrawArc(pen, 3, 3, Width - 8, Height - 8, _angulo, 300);
+        }
     }
 }

@@ -99,6 +99,19 @@ public static class FbConexionHelper
             return false;
         }
 
+        // Pre-check rapido de red: si no hay servidor Firebird en localhost:3050,
+        // no tiene sentido esperar al cliente ADO (que puede tardar o colgarse).
+        using (var tcp = new System.Net.Sockets.TcpClient())
+        {
+            try { tcp.ConnectAsync("localhost", 3050).Wait(TimeSpan.FromSeconds(2)); }
+            catch { /* servidor inaccesible */ }
+            if (!tcp.Connected)
+            {
+                mensaje = "No se pudo contactar al servidor Firebird (localhost:3050). Verifica que el servicio Firebird esté en ejecución.";
+                return false;
+            }
+        }
+
         var cadena = ConstruirCadena(rutaFdb, usuario, password);
         // Aplicar el timeout a la conexion de prueba (por si Firebird no responde)
         cadena = cadena.Replace(";Dialect=3", $";Dialect=3;Connection Timeout={Math.Max(1, timeoutSegundos)}");
@@ -115,11 +128,57 @@ public static class FbConexionHelper
             mensaje = $"Conexion OK (Firebird {version}).";
             return true;
         }
+        catch (FbException ex)
+        {
+            var limpio = ex.Message.Replace(password, "****").Replace(cadena, "[cadena]");
+            mensaje = ClasificarError(limpio, ex.ErrorCode);
+            return false;
+        }
         catch (Exception ex)
         {
             var limpio = ex.Message.Replace(password, "****").Replace(cadena, "[cadena]");
-            mensaje = "Fallo la conexion: " + limpio;
+            mensaje = "Fallo la conexión: " + limpio;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Convierte el error crudo del cliente Firebird en un mensaje claro para
+    /// el instalador: distingue credenciales incorrectas, servidor caido,
+    /// BD no abrible y problemas de la base de seguridad.
+    /// </summary>
+    private static string ClasificarError(string limpio, int errorCode)
+    {
+        var m = limpio;
+
+        // 1) Credenciales incorrectas (codigo 335544472 o frase distintiva)
+        if (errorCode == 335544472 ||
+            m.Contains("user name and password", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("password are not defined", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("usuario y contras", StringComparison.OrdinalIgnoreCase))
+            return "Credenciales incorrectas: el usuario o la contraseña no son válidos para esta base de datos.";
+
+        // 2) Servidor Firebird inalcanzable / caido (codigos 335544344/335544352)
+        if (errorCode == 335544344 || errorCode == 335544352 ||
+            m.Contains("unable to connect to remote host", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("connection refused", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("failed to connect to server", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("network request to host", StringComparison.OrdinalIgnoreCase))
+            return "No se pudo contactar al servidor Firebird (localhost:3050). Verifica que el servicio Firebird esté en ejecución.";
+
+        // 3) BD no abrible (ruta o permisos)
+        if (m.Contains("unable to open database", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("database not found", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("file not found", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("no se pudo abrir", StringComparison.OrdinalIgnoreCase))
+            return "La base de datos no se pudo abrir: verifica la ruta del archivo .fdb y sus permisos.";
+
+        // 4) Base de seguridad
+        if (m.Contains("password database", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("cannot attach", StringComparison.OrdinalIgnoreCase))
+            return "Firebird rechazó la conexión (base de seguridad). Verifica el usuario con el administrador.";
+
+        // 5) Generico
+        return "Fallo la conexión: " + limpio;
     }
 }

@@ -196,6 +196,49 @@ Se abre bajo demanda con el botón **Conf (web)** o con **`AbrirAdmin.bat`**.
 > pensadas para uso local (localhost). No exponer el puerto 5047 a internet sin agregar
 > un mecanismo de autenticación.
 
+### 🚀 Cómo usarlo
+
+#### En desarrollo (tu PC)
+
+```bash
+# 1) Arrancar el sincronizador (opcional: el launcher lo hace solo)
+dotnet run --project Rutx.Sincronizador.csproj
+
+# 2) Arrancar el launcher WinForms (botones + logs verdes)
+dotnet run --project Rutx.Sincronizador.Admin
+
+# 3) Acceso rápido al panel web (otra opción: botón ⚙ Conf (web) del launcher)
+./AbrirAdmin.bat          # o abre http://localhost:5047/admin en el navegador
+```
+
+Flujo diario en la ventana del launcher:
+
+1. **▶ Iniciar** — levanta la API en `:5047` (los logs aparecen en verde en pantalla).
+2. Trabaja normal: la app móvil conecta a `:5047` como siempre (contrato intacto).
+3. **⚙ Conf (web)** — solo cuando necesites cambiar BD, IDs o ejecutar un sync matutino manual.
+4. **⏹ Detener** — cierra la API cuando termines la jornada.
+
+#### En producción (PC del cliente)
+
+```bash
+# Publicar ambos proyectos (el launcher + el sync) en la misma carpeta
+mkdir publicacion
+# 1) El sincronizador (API + panel web /admin)
+dotnet publish Rutx.Sincronizador.csproj -c Release -o publicacion
+# 2) El launcher WinForms (debe quedar JUNTO al exe del sync)
+dotnet publish Rutx.Sincronizador.Admin -c Release -o publicacion
+
+# Resultado:
+# publicacion/
+# ├── Rutx.Sincronizador.exe        ← API (lo controla el launcher)
+# ├── Rutx.Sincronizador.Admin.exe  ← Launcher: doble clic y listo
+# ├── appsettings.json              ← config editable desde el panel web
+# └── wwwroot/admin.html            ← panel web (incluido)
+```
+
+El cliente solo hace **doble clic en `Rutx.Sincronizador.Admin.exe`**:
+Inicia, ve los logs verdes y abre el panel web cuando necesite configurar.
+
 ---
 
 ## 🗂️ Estructura del proyecto

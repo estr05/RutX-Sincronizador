@@ -12,9 +12,9 @@ public static class FbConexionHelper
 {
     /// <summary>
     /// True si el archivo existe y empieza con la firma de una BD Firebird.
-    /// La firma clasica de Firebird 2.x/3.x es "OTY2" en los primeros 4 bytes
-    /// (o "OTY3" en versiones muy viejas); si la cabecera no es reconocible
-    /// se reporta como BD invalida.
+    /// La firma real es page_type=0x01 (header page) + checksum 12345 (0x39 0x30
+    /// big-endian) en los primeros 4 bytes: 01 00 39 30. Compatible con todas las
+    /// versiones: Firebird 1.x, 2.x, 3.0, 4.0, 5.0.
     /// </summary>
     public static bool ArchivoFdbValido(string rutaFdb, out string mensaje)
     {
@@ -45,9 +45,10 @@ public static class FbConexionHelper
             // el archivo termina antes (ya descartado con la validacion de Length).
             fs.ReadExactly(cabecera);
 
-            // Firma Firebird: bytes 0x4F 0x54 0x59 0x36 ("OTY6") o 0x4F 0x54 0x59 0x33 ("OTY3")
-            bool firma = (cabecera[0] == 0x4F && cabecera[1] == 0x54 && cabecera[2] == 0x59 &&
-                          (cabecera[3] == 0x36 || cabecera[3] == 0x33));
+            // Firma Firebird: page_type=0x01 (header page) + checksum 12345 (0x39 0x30 big-endian).
+            // Compatible con todas las versiones: Firebird 1.x, 2.x, 3.0, 4.0, 5.0.
+            bool firma = cabecera[0] == 0x01 && cabecera[1] == 0x00 &&
+                         cabecera[2] == 0x39 && cabecera[3] == 0x30;
 
             if (!firma)
             {

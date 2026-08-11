@@ -78,25 +78,14 @@ cd RutX-Sincronizador
 
 ### 2.2 Publicar los ejecutables
 
-**Opción recomendada — el archivo `publicar.bat`** (no escribes nada a mano,
+**Única forma — el archivo `publicar.bat`** (no se escribe nada a mano,
 no hay typos posibles):
 
 1. En el Explorador, entra a la carpeta `RutX-Sincronizador` (la que clonaste).
 2. Haz **doble clic** en `publicar.bat`.
 3. Espera a que termine: verás la carpeta `publicacion` con los dos `.exe`.
 
-> Para la versión "todo adentro" (cliente sin .NET Runtime):
-> `publicar.bat selfcontained`.
-
 > **[Captura de pantalla: el archivo publicar.bat dentro de la carpeta y su ventana al terminar]**
-
-**Alternativa manual** (si prefieres los comandos):
-
-```bash
-mkdir publicacion
-dotnet publish Rutx.Sincronizador.csproj -c Release -o publicacion
-dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -o publicacion
-```
 
 Resultado esperado — la carpeta `publicacion` debe contener:
 
@@ -109,15 +98,15 @@ publicacion/
 ```
 
 > **Si la PC del cliente no tendrá .NET Runtime instalado**, usa la versión
-> "todo adentro" (*self-contained*): `publicar.bat selfcontained`. El paquete
-> pesa más (≈150 MB), pero no requiere instalar nada en el cliente.
->
-> ⚠️ **Ojo con los typos si escribes los comandos a mano**: el modificador lleva
-> guion (`--self-contained`, no `--selfcontained`), y el segundo proyecto debe
-> incluir su subcarpeta (`Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`).
-> Un typo genera `MSB1001: Modificador desconocido`; un comando pegado partido
-> genera `Falta el argumento requerido para la opción: '-c'`. Por eso se
-> recomienda usar `publicar.bat`.
+> "todo adentro" (*self-contained*): abre una terminal en la carpeta y escribe
+> la única línea `publicar.bat selfcontained`. El paquete pesa más (≈150 MB),
+> pero no requiere instalar nada en el cliente.
+
+> ❌ **No existe alternativa con comandos a mano.** Escribir `dotnet publish`
+> directamente ha causado typos (`--selfcontained` sin guion) y comandos
+> cortados a la mitad al pegarlos, generando `MSB1001` o "Falta el argumento
+> requerido para la opción: '-c'". El `publicar.bat` ejecuta los mismos dos
+> comandos con la ortografía correcta, siempre.
 
 > **Si la publicación falla** con errores de dependencias: ejecuta `dotnet restore`
 > en la raíz del repositorio y vuelve a intentar.

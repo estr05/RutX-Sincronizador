@@ -9,7 +9,7 @@ sus triggers, generadores y constraints.
 ```
 ┌─────────────────┐   HTTPS/JSON    ┌───────────────────┐   Firebird (SQL)   ┌──────────────────┐
 │  App Móvil RUTX │ ──────────────► │  Sincronizador    │ ─────────────────► │  Microsip ERP    │
-│  (Flutter,      │  JWT Bearer     │  (.NET 10, :5047) │    DOCTOS_PV y      │  (FARCHIS.FDB)   │
+│  (Flutter,      │  JWT Bearer     │  (.NET 10, :5047) │    DOCTOS_PV y      │  ([EMPRESA].FDB)   │
 │  offline-first) │                 │                   │    catálogos        │  Punto de Venta  │
 └─────────────────┘                 └───────────────────┘                     └──────────────────┘
 ```

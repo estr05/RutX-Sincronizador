@@ -31,7 +31,7 @@ public class AdminForm : Form
     private readonly Label _lblEstado;
     private readonly RichTextBox _txtLogs;
     private readonly System.Windows.Forms.Timer _timerEstado = new() { Interval = 1000 };
-    private readonly string _rutaExe;
+    private string _rutaExe;
 
     public AdminForm()
     {
@@ -48,7 +48,11 @@ public class AdminForm : Form
                 Title = "Ubica Rutx.Sincronizador.exe"
             };
             if (dialogo.ShowDialog(this) == DialogResult.OK)
+            {
                 _rutaExe = dialogo.FileName;
+                // Recordar la ruta para el próximo arranque
+                _sync.GuardarRuta(_rutaExe);
+            }
         }
 
         Text = "RUTX · Sincronizador";

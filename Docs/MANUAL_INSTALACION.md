@@ -14,7 +14,9 @@ el esquema de Punto de Venta (PV) de Microsip.
 
 **Modelo de despliegue**: los ejecutables se preparan en una máquina de
 desarrollo y se llevan a la PC del cliente **en un USB**. No es necesario
-clonar nada en la PC del cliente.
+clonar nada en la PC del cliente. Se usa el paquete **self-contained**
+(incluye .NET dentro), porque la PC del cliente no tiene frameworks
+instalados.
 
 ```
 Máquina de desarrollo                PC del cliente
@@ -27,11 +29,13 @@ Máquina de desarrollo                PC del cliente
 ---
 
 > ⚠️ **LEE ESTO PRIMERO — NO escribas `dotnet publish` a mano.**
-> Para generar los ejecutables solo haz **doble clic en `publicar.bat`**
-> (está en la raíz de la carpeta `RutX-Sincronizador`). Escribir los comandos
-> a mano ha causado errores una y otra vez (`--selfcontained` sin guion,
-> comandos cortados a la mitad al pegarlos, etc.). El .bat hace exactamente lo
-> mismo y sin errores. Detalle en la sección 2.2.
+> Para generar los ejecutables solo haz **doble clic en
+> `publicar_selfcontained.bat`** (el que se lleva a la PC del cliente, que no
+> tiene .NET instalado) o en `publicar.bat` (versión estándar para tu PC de
+> desarrollo). Ambos están en la raíz de la carpeta `RutX-Sincronizador`.
+> Escribir los comandos a mano ha causado errores una y otra vez
+> (`--selfcontained` sin guion, comandos cortados a la mitad al pegarlos,
+> etc.). Detalle en la sección 2.2.
 
 ---
 
@@ -51,7 +55,7 @@ Máquina de desarrollo                PC del cliente
 | Componente | Requisito |
 |---|---|
 | Sistema operativo | Windows 10 u 11 (64 bits) |
-| .NET Runtime 10 | Para ejecutar los programas (no necesario si el paquete se publica *self-contained*) |
+| .NET Runtime 10 | **No necesario**: el paquete que se lleva al cliente (*self-contained*, sección 2.2) ya lo incluye |
 | Servidor Firebird | En ejecución en `localhost:3050`, con la base de Microsip (`.fdb`) |
 | Credenciales Firebird | Por defecto `SYSDBA` / `masterkey`; ten las reales a la mano |
 | Puerto 5047 | Libre (lo usa la API del Sincronizador) |
@@ -78,14 +82,15 @@ cd RutX-Sincronizador
 
 ### 2.2 Publicar los ejecutables
 
-**Única forma — el archivo `publicar.bat`** (no se escribe nada a mano,
-no hay typos posibles):
+**La que se lleva al cliente — el archivo `publicar_selfcontained.bat`**:
+la PC del cliente no tendrá .NET instalado, por eso esta versión incluye
+"todo adentro" (≈150 MB). No se escribe nada a mano, no hay typos posibles:
 
 1. En el Explorador, entra a la carpeta `RutX-Sincronizador` (la que clonaste).
-2. Haz **doble clic** en `publicar.bat`.
+2. Haz **doble clic** en `publicar_selfcontained.bat`.
 3. Espera a que termine: verás la carpeta `publicacion` con los dos `.exe`.
 
-> **[Captura de pantalla: el archivo publicar.bat dentro de la carpeta y su ventana al terminar]**
+> **[Captura de pantalla: el archivo publicar_selfcontained.bat dentro de la carpeta y su ventana al terminar]**
 
 Resultado esperado — la carpeta `publicacion` debe contener:
 
@@ -97,16 +102,15 @@ publicacion/
 └── wwwroot/admin.html            ← Panel web
 ```
 
-> **Si la PC del cliente no tendrá .NET Runtime instalado**, usa la versión
-> "todo adentro" (*self-contained*): haz **doble clic en
-> `publicar_selfcontained.bat`**. El paquete pesa más (≈150 MB), pero no
-> requiere instalar nada en el cliente.
+> **Para tu PC de desarrollo** (que sí tiene .NET), puedes usar la versión
+> estándar con `publicar.bat` (≈37 MB, más rápida de generar). En la PC del
+> cliente siempre se usa la self-contained.
 
 > ❌ **No existe alternativa con comandos a mano.** Escribir `dotnet publish`
 > directamente ha causado typos (`--selfcontained` sin guion) y comandos
 > cortados a la mitad al pegarlos, generando `MSB1001` o "Falta el argumento
-> requerido para la opción: '-c'". El `publicar.bat` ejecuta los mismos dos
-> comandos con la ortografía correcta, siempre.
+> requerido para la opción: '-c'". Los `.bat` ejecutan los mismos comandos
+> con la ortografía correcta, siempre.
 
 > **Si la publicación falla** con errores de dependencias: ejecuta `dotnet restore`
 > en la raíz del repositorio y vuelve a intentar.
@@ -115,7 +119,8 @@ publicacion/
 
 ## 3. Instalar en la PC del cliente (desde USB)
 
-1. Copia la carpeta `publicacion` (≈37 MB en versión estándar) a un **USB**.
+1. Copia la carpeta `publicacion` (≈150 MB, la versión self-contained
+generada con `publicar_selfcontained.bat`) a un **USB**.
 2. En la PC del cliente, **copia la carpeta del USB al disco local**
    (ej. `C:\Sincronizador`). Así el uso diario no dependerá del USB.
 3. Ejecuta el launcher:
@@ -346,8 +351,8 @@ cerrado cuando sea posible.
 Para validar el flujo completo **sin una segunda máquina**, usa tu propia PC
 como si fuera la del cliente:
 
-1. Prepara el paquete (sección 2): doble clic en `publicar.bat`
-   (o `publicar_selfcontained.bat` para la versión "todo adentro").
+1. Prepara el paquete (sección 2): doble clic en `publicar_selfcontained.bat`
+   (la misma versión que llevarías a un cliente real).
 2. Copia la carpeta `publicacion` a una carpeta limpia de prueba
    (ej. `C:\PruebaCliente\`) — simula el USB y el disco del cliente.
 3. Ejecuta `C:\PruebaCliente\Rutx.Sincronizador.Admin.exe`.

@@ -122,8 +122,21 @@ builder.Services.AddScoped<ICreditoService, CreditoService>();
 // Servicio de resolucion dinamica de Foreign Keys
 builder.Services.AddScoped<IFkResolverService, FkResolverService>();
 
+// Auditoria de compatibilidad BD Microsip <-> sincronizador (wizard + panel web)
+builder.Services.AddScoped<IAuditoriaCompatibilidadService, AuditoriaCompatibilidadService>();
+
 // Cola Offline (Eduardo)
 string sqlitePath = builder.Configuration.GetValue<string>("ColaOffline:RutaSqlite") ?? "Data/cola_offline.db";
+
+// La ruta de la cola SQLite es relativa al directorio de trabajo. Al ser
+// lanzado por el launcher (WorkingDirectory = carpeta del exe), la carpeta
+// Data/ puede no existir ahi y SQLite falla con 'Error 14: unable to open
+// database file'. Se resuelve contra el ContentRoot y se crea la carpeta.
+if (!Path.IsPathRooted(sqlitePath))
+    sqlitePath = Path.Combine(builder.Environment.ContentRootPath, sqlitePath);
+var sqliteDir = Path.GetDirectoryName(sqlitePath);
+if (!string.IsNullOrWhiteSpace(sqliteDir))
+    Directory.CreateDirectory(sqliteDir);
 string sqliteConnectionString = $"Data Source={sqlitePath}";
 
 builder.Services.AddSingleton<IColaOfflineRepository>(new ColaOfflineRepository(sqliteConnectionString));
@@ -152,11 +165,17 @@ builder.Services.AddAuthorization();
 var app = builder.Build();
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
+app.UseStaticFiles(); // Panel de administracion (wwwroot)
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
 // Health check: permite que la app móvil detecte si el servidor es accesible
+
+// Panel de administracion web (config bajo demanda).
+app.MapGet("/admin", () => Results.File(
+    Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "admin.html"),
+    "text/html"));
 app.MapGet("/health", () => Results.Ok(new { status = "ok", timestamp = DateTime.UtcNow }));
 
 app.Run();

@@ -3,8 +3,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Rutx.Sincronizador.Tests\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Rutx.Sincronizador.Tests\**;Rutx.Sincronizador.Admin\**</DefaultItemExcludes>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Copiar wwwroot (panel web /admin) al output: el launcher arranca el sync
+         con WorkingDirectory = carpeta del exe, asi que wwwroot debe vivir
+         junto al binario (no solo en la raiz del proyecto). -->
+    <Content Update="wwwroot\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.79" />
     <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />

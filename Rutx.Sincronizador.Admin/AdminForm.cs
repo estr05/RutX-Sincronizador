@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http;
 
 namespace Rutx.Sincronizador.Admin;
 
@@ -28,9 +29,11 @@ public class AdminForm : Form
     private readonly Button _btnIniciar;
     private readonly Button _btnDetener;
     private readonly Button _btnConfWeb;
+    private readonly Button _btnCopyLogs;
     private readonly Label _lblEstado;
     private readonly RichTextBox _txtLogs;
     private readonly System.Windows.Forms.Timer _timerEstado = new() { Interval = 1000 };
+    private readonly System.Windows.Forms.Timer _timerCopy = new() { Interval = 1500 };
     private string _rutaExe;
 
     public AdminForm()
@@ -86,6 +89,16 @@ public class AdminForm : Form
         _btnConfWeb = CrearBoton("⚙  Conf (web)", Naranja, AzulMarino);
         _btnConfWeb.Click += (_, _) => AbrirPanelWeb();
 
+        _btnCopyLogs = CrearBoton("📋  Copy logs", Color.White, AzulMarino);
+        _btnCopyLogs.FlatAppearance.BorderSize = 1;
+        _btnCopyLogs.FlatAppearance.BorderColor = Borde;
+        _btnCopyLogs.Click += (_, _) => CopiarLogs();
+        _timerCopy.Tick += (_, _) =>
+        {
+            _timerCopy.Stop();
+            _btnCopyLogs.Text = "📋  Copy logs";
+        };
+
         _lblEstado = new Label
         {
             AutoSize = false,
@@ -100,11 +113,12 @@ public class AdminForm : Form
         topBar.Controls.Add(_btnIniciar);
         topBar.Controls.Add(_btnDetener);
         topBar.Controls.Add(_btnConfWeb);
+        topBar.Controls.Add(_btnCopyLogs);
         topBar.Controls.Add(_lblEstado);
 
         // Posicionar botones a la izquierda
         int x = 16;
-        foreach (var btn in new[] { _btnIniciar, _btnDetener, _btnConfWeb })
+        foreach (var btn in new[] { _btnIniciar, _btnDetener, _btnConfWeb, _btnCopyLogs })
         {
             btn.Location = new Point(x, 10);
             x += btn.Width + 10;
@@ -179,10 +193,49 @@ public class AdminForm : Form
         _sync.Iniciar(_rutaExe);
     }
 
-    private void AbrirPanelWeb()
+    private async void AbrirPanelWeb()
     {
+        _btnConfWeb.Enabled = false;
         try
         {
+            // 1) Si el sync no esta corriendo, iniciarlo primero
+            if (!_sync.IsRunning)
+            {
+                AgregarLog("El sincronizador no esta corriendo: iniciandolo...");
+                IniciarSync();
+            }
+
+            // 2) Esperar a que /health responda (max ~15 s)
+            AgregarLog("Esperando respuesta de la API en :5047...");
+            bool listo = false;
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            for (int i = 0; i < 30; i++)
+            {
+                if (!_sync.IsRunning) break; // se detuvo mientras esperaba
+                try
+                {
+                    var resp = await http.GetAsync("http://localhost:5047/health");
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        listo = true;
+                        break;
+                    }
+                }
+                catch { /* aun no levanta: reintentar */ }
+                await Task.Delay(500);
+            }
+
+            // 3) Abrir el navegador solo si la API respondio
+            if (!listo)
+            {
+                AgregarLog("ERROR: la API en :5047 no respondio. Revisa los logs del proceso (puede fallar la conexion a la BD).");
+                MessageBox.Show(
+                    "El sincronizador no respondio en localhost:5047.\n\nRevisa los logs de esta ventana: si falla la conexion a la BD, configurala primero en el panel o appsettings.json.",
+                    "RUTX · Sincronizador", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            AgregarLog("API lista. Abriendo panel web...");
             Process.Start(new ProcessStartInfo("http://localhost:5047/admin")
             {
                 UseShellExecute = true
@@ -191,6 +244,30 @@ public class AdminForm : Form
         catch (Exception ex)
         {
             AgregarLog("ERROR al abrir el navegador: " + ex.Message);
+        }
+        finally
+        {
+            _btnConfWeb.Enabled = true;
+        }
+    }
+
+    private void CopiarLogs()
+    {
+        if (_txtLogs.IsDisposed) return;
+        if (_txtLogs.TextLength == 0)
+        {
+            AgregarLog("No hay logs que copiar aun.");
+            return;
+        }
+        try
+        {
+            Clipboard.SetText(_txtLogs.Text);
+            _btnCopyLogs.Text = "✓  Copiado";
+            _timerCopy.Start();
+        }
+        catch (Exception ex)
+        {
+            AgregarLog("ERROR al copiar logs: " + ex.Message);
         }
     }
 

@@ -99,6 +99,13 @@ publicacion/
 > ```
 >
 > El paquete pesa más (≈150 MB), pero no requiere instalar nada en el cliente.
+>
+> ⚠️ **Copia los comandos tal cual**: el modificador se escribe con guion
+> (`--self-contained`). Si lo escribes sin guion (`--selfcontained`), obtendrás
+> el error `MSB1001: Modificador desconocido`. Tampoco cambies el nombre del
+> segundo proyecto: debe incluir su subcarpeta (`Rutx.Sincronizador.Admin/...`),
+> no solo `Rutx.Sincronizador.Admin`. Ejecuta los comandos desde la raíz del
+> repositorio (`C:\RutX-Sincronizador`), no desde dentro de `publicacion`.
 
 > **Si la publicación falla** con errores de dependencias: ejecuta `dotnet restore`
 > en la raíz del repositorio y vuelve a intentar.
@@ -266,6 +273,7 @@ Confirma que la instalación quedó operativa:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `MSB1001: Modificador desconocido` al publicar | El modificador se escribió sin guion (`--selfcontained`) o el proyecto de la Admin sin su subcarpeta | Copia los comandos tal cual de la sección 2.2: `--self-contained` (con guion) y `Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`; ejecuta desde la raíz del repositorio |
 | "Ya hay una instancia del Sincronizador ejecutándose" | Otra instancia activa o proceso huérfano en :5047 | Cierra el launcher/terminal anterior o ejecuta `taskkill /F /PID <pid>` sobre el proceso que escucha en 5047 |
 | "No se localizó `Rutx.Sincronizador.exe`" | El launcher no encuentra el ejecutable del sync | Verifica que ambos .exe estén en la misma carpeta (`C:\Sincronizador`); vuelve a ejecutar el asistente o ubica el archivo manualmente |
 | "Publicador desconocido" al ejecutar | Ejecutables sin firma digital | **Más información → Ejecutar de todas formas** |

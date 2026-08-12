@@ -11,13 +11,16 @@ public sealed class FirebirdVersionInfo
     /// <summary>Numero de version completo (ej. "3.0.11", "5.0.0", "2.5.9").</summary>
     public string Version { get; set; } = "";
 
-    /// <summary>ODS (On-Disk Structure) leido del header de la .fdb.</summary>
+    /// <summary>ODS major (On-Disk Structure) leido del header de la .fdb.</summary>
     public int Ods { get; set; }
+
+    /// <summary>ODS minor del header de la .fdb.</summary>
+    public int OdsMinor { get; set; }
 
     /// <summary>Nombre descriptivo (ej. "Firebird 3.0", "Firebird 5.0").</summary>
     public string Nombre { get; set; } = "";
 
-    /// <summary>True si es una version soportada para Microsip (>= 2.5).</summary>
+    /// <summary>True si es una version soportada para Microsip (>= 2.1).</summary>
     public bool Soportada { get; set; }
 
     /// <summary>Advertencias o recomendaciones para esta version.</summary>
@@ -28,15 +31,15 @@ public sealed class FirebirdVersionInfo
 
     public override string ToString() =>
         string.IsNullOrEmpty(Version)
-            ? $"Firebird (ODS {Ods}) — version desconocida"
-            : $"{Nombre} (ODS {Ods}) — {Version}";
+            ? $"{Nombre} (ODS {Ods}.{OdsMinor}) — version desconocida"
+            : $"{Nombre} (ODS {Ods}.{OdsMinor}) — {Version}";
 }
 
 /// <summary>
 /// Detecta la version de Firebird usando multiples estrategias:
 ///   1. ODS del header .fdb (sin conexion, todas las versiones)
-///   2. MON$DATABASE_VERSION (Firebird 2.5+)
-///   3. RDB$GET_CONTEXT('SYSTEM','ENGINE_VERSION') (Firebird 3.0+)
+///   2. RDB$GET_CONTEXT('SYSTEM','ENGINE_VERSION') (Firebird 3.0+, mas preciso)
+///   3. MON$DATABASE_VERSION (Firebird 2.5+)
 ///   4. Fallback: solo MON$DATABASE_NAME
 ///
 /// 100% SOLO LECTURA — nunca escribe en la BD.
@@ -44,33 +47,39 @@ public sealed class FirebirdVersionInfo
 public static class FirebirdVersionDetector
 {
     // ==================================================================
-    // MAPA ODS → FIREBIRD VERSION (todas las conocidas)
+    // MAPA ODS → FIREBIRD VERSION
     // ==================================================================
-    // ODS = On-Disk Structure. Cada version mayor de Firebird usa un ODS
-    // distinto. El ODS se lee directamente del header de la .fdb (byte 16-17),
-    // asi que funciona sin abrir conexion y con cualquier version.
+    // ODS = On-Disk Structure. El header page de la .fdb guarda el ODS
+    // mayor en los bytes 18-19 (little-endian, con el flag Firebird 0x8000)
+    // y el ODS menor en los bytes 20-21. Se lee sin abrir conexion.
     //
-    // Fuente: Firebird Release Notes y fb_types.h
+    // Fuente: Firebird Internals (header page) + gstat docs:
+    //   ODS 10.0 = Firebird 1.0 (tambien InterBase 6.0)
+    //   ODS 10.1 = Firebird 1.5
+    //   ODS 11.0 = Firebird 2.0
+    //   ODS 11.1 = Firebird 2.1
+    //   ODS 11.2 = Firebird 2.5
+    //   ODS 12.0 = Firebird 3.0
+    //   ODS 13.0 = Firebird 4.0
+    //   ODS 13.1 = Firebird 5.0
     // ==================================================================
-    private static readonly Dictionary<int, (string Version, string Nombre)> OdsMap = new()
+
+    // Mapa por (major, minor) → version. Los majors son 10, 11, 12, 13...
+    private static readonly Dictionary<(int Major, int Minor), (string Version, string Nombre)> OdsMap = new()
     {
-        // Firebird 1.0 (InterBase 6.0)
-        [10] = ("1.0",   "Firebird 1.0"),
-        [11] = ("1.5",   "Firebird 1.5"),
-        // Firebird 2.x
-        [12] = ("2.0",   "Firebird 2.0"),
-        [13] = ("2.1",   "Firebird 2.1"),
-        [14] = ("2.5",   "Firebird 2.5"),
-        // Firebird 3.x
-        [15] = ("3.0",   "Firebird 3.0"),
-        // Firebird 4.x
-        [16] = ("4.0",   "Firebird 4.0"),
-        // Firebird 5.x
-        [17] = ("5.0",   "Firebird 5.0"),
+        [(10, 0)] = ("1.0",   "Firebird 1.0"),
+        [(10, 1)] = ("1.5",   "Firebird 1.5"),
+        [(11, 0)] = ("2.0",   "Firebird 2.0"),
+        [(11, 1)] = ("2.1",   "Firebird 2.1"),
+        [(11, 2)] = ("2.5",   "Firebird 2.5"),
+        [(12, 0)] = ("3.0",   "Firebird 3.0"),
+        [(13, 0)] = ("4.0",   "Firebird 4.0"),
+        [(13, 1)] = ("5.0",   "Firebird 5.0"),
     };
 
-    // Version minima soportada para Microsip
-    private const int OdsMinimoSoportado = 13; // Firebird 2.1
+    // Familia minima soportada para Microsip: ODS major 11 = Firebird 2.x.
+    // Debajo de eso (Firebird 1.x) la app movil no puede operar bien.
+    private const int OdsMajorMinimoSoportado = 11;
 
     // ==================================================================
     // METODO PUBLICO PRINCIPAL
@@ -87,16 +96,12 @@ public static class FirebirdVersionDetector
         // ---- Estrategia 1: ODS desde el header del .fdb (sin conexion) ----
         try
         {
-            var ods = LeerOdsDeArchivo(rutaFdb);
+            var (ods, odsMinor) = LeerOdsDeArchivo(rutaFdb);
             if (ods > 0)
             {
                 info.Ods = ods;
+                info.OdsMinor = odsMinor;
                 info.MetodoDeteccion = "ODS (header .fdb)";
-                if (OdsMap.TryGetValue(ods, out var mapping))
-                {
-                    info.Version = mapping.Version;
-                    info.Nombre = mapping.Nombre;
-                }
             }
         }
         catch { /* no se pudo leer el header */ }
@@ -111,77 +116,105 @@ public static class FirebirdVersionDetector
             catch { /* la conexion fallo, usamos lo que tengamos del ODS */ }
         }
 
-        // ---- Completar campos faltantes ----
-        if (string.IsNullOrEmpty(info.Nombre) && info.Ods > 0)
+        // ---- Completar campos faltantes a partir del ODS ----
+        if (info.Ods > 0)
         {
-            info.Nombre = OdsMap.TryGetValue(info.Ods, out var m)
-                ? m.Nombre
-                : $"Firebird (ODS {info.Ods})";
+            var exacta = OdsMap.TryGetValue((info.Ods, info.OdsMinor), out var m0);
+            (string Version, string Nombre)? porMajor = null;
+            if (!exacta)
+            {
+                // Minor no mapeado exacto: usar la version mas nueva de la familia.
+                // Ej: ODS 13.3 -> Firebird 5.0 (no 4.0).
+                var candidatos = OdsMap
+                    .Where(kv => kv.Key.Major == info.Ods)
+                    .Select(kv => kv.Value)
+                    .OrderByDescending(v => v.Version)
+                    .ToList();
+                if (candidatos.Count > 0)
+                    porMajor = candidatos[0];
+            }
+
+            if (exacta && string.IsNullOrEmpty(info.Version))
+            {
+                info.Version = m0.Version;
+                info.Nombre = m0.Nombre;
+            }
+            else if (porMajor is { } m1 && string.IsNullOrEmpty(info.Version))
+            {
+                // ODS major conocido pero minor desconocido: mostrar familia
+                info.Nombre = m1.Nombre;
+            }
+
+            if (string.IsNullOrEmpty(info.Nombre))
+                info.Nombre = $"Firebird (ODS {info.Ods}.{info.OdsMinor})";
         }
 
-        if (string.IsNullOrEmpty(info.Version) && info.Ods > 0)
-        {
-            info.Version = OdsMap.TryGetValue(info.Ods, out var m2)
-                ? m2.Version
-                : "desconocida";
-        }
+        if (string.IsNullOrEmpty(info.Nombre) && !string.IsNullOrEmpty(info.Version))
+            info.Nombre = ExtraerNombreVersion(info.Version);
 
-        // Soportada?
-        info.Soportada = info.Ods >= OdsMinimoSoportado || info.Ods == 0; // 0 = no detectado, asumir ok
+        // Soportada? (0 = no detectado via ODS, asumir ok si hay version SQL)
+        if (info.Ods == 0)
+            info.Soportada = !string.IsNullOrEmpty(info.Version);
+        else
+            info.Soportada = info.Ods >= OdsMajorMinimoSoportado;
 
         // Notas para versiones problematicas
-        if (info.Ods is >= 10 and < 13)
+        if (info.Ods == 10)
             info.Nota = "Firebird 1.x es muy antiguo. Se recomienda actualizar a Firebird 2.5+ o 3.0+.";
-        else if (info.Ods == 13)
+        else if (info.Ods == 11 && info.OdsMinor == 0)
+            info.Nota = "Firebird 2.0 es muy antiguo. Considera actualizar a 3.0+.";
+        else if (info.Ods == 11 && info.OdsMinor == 1)
             info.Nota = "Firebird 2.1 esta sin soporte oficial. Considera actualizar a 3.0+.";
-        else if (info.Ods == 14)
+        else if (info.Ods == 11 && info.OdsMinor == 2)
             info.Nota = "Firebird 2.5 esta sin soporte oficial desde 2020. Considera actualizar a 3.0+.";
 
         return info;
     }
 
     // ==================================================================
-    // ESTRATEGIA 1: LEER ODS DEL HEADER .FDG
+    // ESTRATEGIA 1: LEER ODS DEL HEADER .FDB
     // ==================================================================
 
     /// <summary>
     /// Lee el ODS (On-Disk Structure) directamente del header de la .fdb.
     /// Funciona con todas las versiones de Firebird sin necesidad de conexion.
     ///
-    /// Formato del header page (page_type=0x01):
-    ///   Offset 0:  page_type (1 byte) = 0x01
-    ///   Offset 1:  checksum flags (1 byte)
-    ///   Offset 2-3: checksum (2 bytes)
-    ///   Offset 4-7: page size (4 bytes)
-    ///   Offset 8-9: ODS major (2 bytes, big-endian)
-    ///   Offset 10-11: ODS minor (2 bytes, big-endian)
-    ///   ... (resto del header)
+    /// Layout del header page (type 0x01), segun Firebird Internals:
+    ///   Offset  0: page_type (1 byte) = 0x01
+    ///   Offset  1: flags (1 byte)
+    ///   Offset  2-3: checksum (2 bytes, little-endian)
+    ///   Offset 16-17: hdr_page_size (2 bytes, little-endian)
+    ///   Offset 18-19: hdr_ods_version (2 bytes, little-endian)
+    ///                 = ODS major AND 0x8000 (flag Firebird)
+    ///   Offset 20-21: hdr_ods_minor (2 bytes, little-endian)
+    ///
+    /// Devuelve (major, minor) o (0, 0) si no es un header valido.
     /// </summary>
-    public static int LeerOdsDeArchivo(string rutaFdb)
+    public static (int Major, int Minor) LeerOdsDeArchivo(string rutaFdb)
     {
         if (string.IsNullOrWhiteSpace(rutaFdb) || !File.Exists(rutaFdb))
-            return 0;
+            return (0, 0);
 
         using var fs = new FileStream(rutaFdb, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        if (fs.Length < 16)
-            return 0;
+        if (fs.Length < 22)
+            return (0, 0);
 
-        var header = new byte[16];
+        var header = new byte[22];
         fs.ReadExactly(header);
 
         // Validar page_type = 0x01 (header page)
         if (header[0] != 0x01)
-            return 0;
+            return (0, 0);
 
-        // ODS major: bytes 8-9 (big-endian en Firebird)
-        int odsMajor = (header[8] << 8) | header[9];
-        // ODS minor: bytes 10-11 (big-endian)
-        int odsMinor = (header[10] << 8) | header[11];
+        // ODS major: bytes 18-19, little-endian, con flag Firebird 0x8000.
+        // Ej: 0x800C → major 12 (Firebird 3.0), 0x800D → major 13 (Firebird 4/5).
+        ushort odsRaw = (ushort)(header[18] | (header[19] << 8));
+        int odsMajor = odsRaw & 0x7FFF;  // quitar el flag Firebird
 
-        // Firebird 1.x usa ODS 10.x, 1.5 usa 11.x, etc.
-        // El "ODS base" es el numero mayor (10, 11, 12, 13, 14, 15, 16, 17)
-        // El minor es la revision dentro de esa version.
-        return odsMajor;
+        // ODS minor: bytes 20-21, little-endian
+        int odsMinor = header[20] | (header[21] << 8);
+
+        return (odsMajor, odsMinor);
     }
 
     // ==================================================================
@@ -235,8 +268,13 @@ public static class FirebirdVersionDetector
             if (!string.IsNullOrEmpty(name))
             {
                 info.MetodoDeteccion = "MON$DATABASE_NAME (sin version)";
-                // No tenemos version, pero sabemos que al menos es 2.1
-                if (info.Ods == 0) info.Ods = 13; // asumir 2.1 minimo
+                // No tenemos version exacta, pero sabemos que al menos es 2.1
+                if (info.Ods == 0)
+                {
+                    info.Ods = 11;      // familia Firebird 2.x
+                    info.OdsMinor = 1;  // Firebird 2.1 minimo
+                    info.Nombre = "Firebird 2.1+";
+                }
             }
         }
         catch { /* Firebird < 2.1 o error */ }

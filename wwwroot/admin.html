@@ -321,6 +321,58 @@
   }
   .field-note { margin-top: 14px; font-size: 12px; color: var(--text-muted); }
 
+  /* ===== Formas de cobro a credito: campos individuales ===== */
+  .credit-list { display: flex; flex-direction: column; gap: 8px; }
+  .credit-item {
+    display: flex; align-items: stretch; gap: 8px;
+  }
+  .credit-item input {
+    flex: 1; min-width: 0;
+    font-family: inherit; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; color: var(--text); background: var(--white);
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  .credit-item input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 56, 89, .12);
+  }
+  .credit-item input:disabled { background: #F3F4F6; color: var(--text-muted); cursor: not-allowed; }
+  .credit-item .id-status-inline {
+    align-self: center;
+    font-size: 11px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 260px;
+  }
+  .credit-item .id-status-inline.ok   { color: var(--green); }
+  .credit-item .id-status-inline.err  { color: var(--red); }
+  .credit-item .id-status-inline.warn { color: var(--amber); }
+  .credit-item .id-status-inline.pend { color: var(--text-muted); }
+  .btn-quitar {
+    flex: 0 0 auto;
+    font-size: 15px; line-height: 1;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0 12px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: border-color .15s ease, background .15s ease, color .15s ease;
+  }
+  .btn-quitar:hover { border-color: var(--danger); background: #FEF2F2; color: var(--danger); }
+  .btn-agregar-cobro {
+    align-self: flex-start;
+    margin-top: 4px;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    border: 1px dashed var(--primary);
+    background: transparent; color: var(--primary);
+    border-radius: 8px; padding: 8px 16px;
+    cursor: pointer;
+    transition: background .15s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn-agregar-cobro:hover { background: #EFF6FF; }
+
   /* ===== Modal buscador de IDs ===== */
   .modal-backdrop {
     position: fixed; inset: 0;
@@ -537,13 +589,12 @@
           </div>
           <div class="id-status"></div>
         </div>
-        <div class="field full" data-campo-array="CreditFormaCobroIds" data-catalogo="formas_cobro">
-          <label>Formas de cobro a crédito (IDs separados por coma)</label>
-          <div class="id-row">
-            <input type="text" id="cfg-credit-formas" placeholder="71, 703, 2205">
-            <button type="button" class="btn-buscar" title="Buscar en FORMAS_COBRO">🔍</button>
+        <div class="field full" id="credit-formas-section">
+          <label>Formas de cobro a crédito</label>
+          <div class="credit-list" id="credit-formas-list">
+            <!-- Los items se renderizan dinámicamente por JS -->
           </div>
-          <div class="id-status"></div>
+          <button type="button" class="btn-agregar-cobro" id="btn-agregar-cobro">＋ Agregar forma de cobro</button>
         </div>
         <div class="field">
           <label>Aplicar venta automática</label>
@@ -698,8 +749,8 @@ async function cargarConfig() {
       inp.checked = v === true;
     });
     const creditArr = getPath(configActual, 'MicrosipSettings.CreditFormaCobroIds');
-    const creditInp = document.getElementById('cfg-credit-formas');
-    if (creditInp) creditInp.value = Array.isArray(creditArr) ? creditArr.join(', ') : '';
+    const ids = Array.isArray(creditArr) ? creditArr : [];
+    renderCreditItems(ids);
     toast('Configuración cargada');
   } catch (e) {
     toast('No se pudo leer la configuración: ' + e.message, 'err');
@@ -758,13 +809,8 @@ async function guardarConfig() {
     nuevo.ConnectionStrings.FirebirdConnection = configActual.ConnectionStrings.FirebirdConnection;
   }
 
-  // Formas de cobro a credito: lista de IDs separados por coma
-  const creditInp = document.getElementById('cfg-credit-formas');
-  const creditIds = (creditInp?.value || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => /^\d+$/.test(s))
-    .map(Number);
+  // Formas de cobro a credito: leer cada campo individual
+  const creditIds = leerCreditIds();
   nuevo.MicrosipSettings.CreditFormaCobroIds = creditIds;
 
   try {
@@ -956,8 +1002,12 @@ async function cargarConexion() {
 
 /* ---------- Validacion de IDs criticos (por campo) ---------- */
 async function cargarIdsCriticos() {
-  const todos = document.querySelectorAll('[data-campo-id] .id-status, [data-campo-array] .id-status');
+  const todos = document.querySelectorAll('[data-campo-id] .id-status');
   todos.forEach(el => { el.className = 'id-status pend'; el.textContent = '⏳ Validando contra la BD…'; });
+  // También poner en pending los status inline de crédito
+  document.querySelectorAll('#credit-formas-list .id-status-inline').forEach(el => {
+    el.className = 'id-status-inline pend'; el.textContent = '⏳ Validando…';
+  });
   try {
     const res = await fetch('/api/v2/admin/ids-criticos', { cache: 'no-store' });
     const data = await res.json();
@@ -982,13 +1032,19 @@ async function cargarIdsCriticos() {
     }
 
     if (!data.conexion_ok) {
-      document.querySelectorAll('[data-campo-id], [data-campo-array]').forEach(c => {
+      document.querySelectorAll('[data-campo-id]').forEach(c => {
         const st = c.querySelector('.id-status');
         st.className = 'id-status err';
         st.textContent = '✗ BD no disponible: ' + (data.error || 'sin conexión');
         const inp = c.querySelector('input');
         if (inp) inp.disabled = false;
       });
+      // Campos de crédito individuales
+      document.querySelectorAll('#credit-formas-list .id-status-inline').forEach(el => {
+        el.className = 'id-status-inline err';
+        el.textContent = '✗ BD no disponible';
+      });
+      document.querySelectorAll('#credit-formas-list input').forEach(inp => inp.disabled = false);
       return;
     }
 
@@ -1001,29 +1057,39 @@ async function cargarIdsCriticos() {
       pintarEstadoCampo(campo, item);
     });
 
-    const campoArr = document.querySelector('[data-campo-array]');
-    if (campoArr) {
-      const st = campoArr.querySelector('.id-status');
-      const items = (data.campos || []).filter(c => c.clave === 'CreditFormaCobroIds');
-      st.className = 'id-status';
-      st.innerHTML = '';
-      if (!items.length) {
-        st.className = 'id-status pend';
-        st.textContent = 'Sin formas de cobro a crédito configuradas';
+    // Pintar estado individual de cada campo de crédito
+    const creditItems = (data.campos || []).filter(c => c.clave === 'CreditFormaCobroIds');
+    const creditRows = document.querySelectorAll('#credit-formas-list .credit-item');
+    creditRows.forEach((row, idx) => {
+      const inp = row.querySelector('input');
+      const st = row.querySelector('.id-status-inline');
+      const btn = row.querySelector('.btn-buscar');
+      const idVal = inp ? parseInt(inp.value, 10) : NaN;
+      const item = creditItems.find(c => Number(c.id_actual) === idVal || (idx === (c.posicion ?? idx)));
+      if (!st) return;
+      if (!item) { st.className = 'id-status-inline pend'; st.textContent = '↻ Guarda para re-validar'; return; }
+      if (item.valido) {
+        if (inp) inp.disabled = true;
+        if (btn) btn.disabled = true;
+        st.className = 'id-status-inline ok';
+        st.textContent = '✓ ' + (item.nombre_actual || 'Existe');
       } else {
-        items.forEach(item => {
-          const chip = document.createElement('span');
-          chip.className = 'chip-id ' + (item.valido ? 'chip-ok' : (item.es_aviso ? 'chip-warn' : 'chip-err'));
-          chip.textContent = (item.valido ? '✓ ' : '✗ ') + item.id_actual + (item.nombre_actual ? ' · ' + item.nombre_actual : '');
-          chip.title = item.descripcion + ' (' + item.tabla + '.' + item.columna + ')';
-          st.appendChild(chip);
-        });
+        if (inp) inp.disabled = false;
+        if (btn) btn.disabled = false;
+        st.className = 'id-status-inline ' + (item.es_aviso ? 'warn' : 'err');
+        st.textContent = item.error
+          ? '⚠ ' + item.error
+          : '✗ ID ' + item.id_actual + ' no existe en FORMAS_COBRO';
       }
-    }
+    });
   } catch (e) {
-    document.querySelectorAll('[data-campo-id] .id-status, [data-campo-array] .id-status').forEach(el => {
+    document.querySelectorAll('[data-campo-id] .id-status').forEach(el => {
       el.className = 'id-status err';
       el.textContent = '✗ Error validando: ' + e.message;
+    });
+    document.querySelectorAll('#credit-formas-list .id-status-inline').forEach(el => {
+      el.className = 'id-status-inline err';
+      el.textContent = '✗ Error: ' + e.message;
     });
     const bv = document.getElementById('bd-version');
     if (bv) {
@@ -1057,6 +1123,67 @@ function pintarEstadoCampo(campo, item) {
     }
     if (btn) btn.disabled = false;
   }
+}
+
+/* ---------- Campos individuales de Formas de Cobro a Crédito ---------- */
+function crearCreditItem(idVal) {
+  const item = document.createElement('div');
+  item.className = 'credit-item';
+
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.placeholder = 'ID forma de cobro…';
+  if (idVal !== undefined && idVal !== null && idVal !== '') inp.value = idVal;
+  inp.addEventListener('input', () => {
+    const st = item.querySelector('.id-status-inline');
+    if (st) { st.className = 'id-status-inline pend'; st.textContent = '↻ Guarda para re-validar'; }
+  });
+
+  const btnBuscar = document.createElement('button');
+  btnBuscar.type = 'button';
+  btnBuscar.className = 'btn-buscar';
+  btnBuscar.title = 'Buscar en FORMAS_COBRO';
+  btnBuscar.textContent = '🔍';
+  btnBuscar.setAttribute('data-catalogo', 'formas_cobro');
+  btnBuscar.addEventListener('click', () => {
+    abrirBuscador('formas_cobro', 'Forma de cobro a crédito', (id, nombre) => {
+      inp.value = id;
+      inp.disabled = false;
+      const st = item.querySelector('.id-status-inline');
+      if (st) { st.className = 'id-status-inline pend'; st.textContent = '↻ Guarda para re-validar'; }
+    });
+  });
+
+  const st = document.createElement('span');
+  st.className = 'id-status-inline pend';
+  st.textContent = idVal ? '↻ Guarda para validar' : 'Nuevo — busca o escribe un ID';
+
+  const btnQuitar = document.createElement('button');
+  btnQuitar.type = 'button';
+  btnQuitar.className = 'btn-quitar';
+  btnQuitar.title = 'Quitar esta forma de cobro';
+  btnQuitar.textContent = '✕';
+  btnQuitar.addEventListener('click', () => item.remove());
+
+  item.appendChild(inp);
+  item.appendChild(btnBuscar);
+  item.appendChild(st);
+  item.appendChild(btnQuitar);
+  return item;
+}
+
+function renderCreditItems(ids) {
+  const list = document.getElementById('credit-formas-list');
+  list.innerHTML = '';
+  const arr = ids.length ? ids : [];
+  arr.forEach(id => list.appendChild(crearCreditItem(id)));
+}
+
+function leerCreditIds() {
+  return Array.from(document.querySelectorAll('#credit-formas-list .credit-item input'))
+    .map(inp => inp.value.trim())
+    .filter(v => /^\d+$/.test(v))
+    .map(Number);
 }
 
 /* ---------- Buscador de IDs (consultas predefinidas) ---------- */
@@ -1129,24 +1256,25 @@ document.getElementById('btn-guardar').addEventListener('click', guardarConfig);
 document.getElementById('btn-sync').addEventListener('click', syncMatutino);
 document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarConexion(); cargarVendedores(); cargarIdsCriticos(); cargarAuditoria(); });
 
-// Buscador de IDs: un clic en 🔍 abre el catalogo correspondiente
-// y al elegir un resultado lo escribe en el campo (se re-valida al guardar).
-document.querySelectorAll('.btn-buscar').forEach(btn => {
+// Botón agregar forma de cobro a crédito
+document.getElementById('btn-agregar-cobro').addEventListener('click', () => {
+  const list = document.getElementById('credit-formas-list');
+  const item = crearCreditItem(null);
+  list.appendChild(item);
+  item.querySelector('input').focus();
+});
+
+// Buscador de IDs: un clic en 🔍 en campos [data-campo-id] abre el catálogo correspondiente
+// (Los botones dentro de #credit-formas-list tienen su propio listener en crearCreditItem)
+document.querySelectorAll('[data-campo-id] .btn-buscar').forEach(btn => {
   btn.addEventListener('click', () => {
-    const campo = btn.closest('[data-campo-id]') || btn.closest('[data-campo-array]');
+    const campo = btn.closest('[data-campo-id]');
     if (!campo) return;
-    const esArray = campo.hasAttribute('data-campo-array');
     const inp = campo.querySelector('input');
     const etiqueta = campo.querySelector('label').textContent.trim();
     abrirBuscador(campo.dataset.catalogo, etiqueta, (id) => {
-      if (esArray) {
-        const actuales = (inp.value || '').split(',').map(s => s.trim()).filter(Boolean);
-        if (!actuales.includes(String(id))) actuales.push(String(id));
-        inp.value = actuales.join(', ');
-      } else {
-        inp.value = id;
-        inp.disabled = false;
-      }
+      inp.value = id;
+      inp.disabled = false;
       const st = campo.querySelector('.id-status');
       st.className = 'id-status pend';
       st.textContent = '↻ Guarda la configuración para re-validar';

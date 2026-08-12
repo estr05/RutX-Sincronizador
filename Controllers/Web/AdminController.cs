@@ -276,6 +276,276 @@ public class AdminController : ControllerBase
         }
     }
 
+    // ========================================================================
+    // VALIDACION DE IDs CRITICOS POR CAMPO (analisis de la BD configurada)
+    // El panel usa esto para: bloquear los campos correctos, marcar los que
+    // fallan y ofrecer la busqueda del ID correcto.
+    // ========================================================================
+
+    /// <summary>
+    /// GET /api/v2/admin/ids-criticos
+    /// Valida en vivo cada ID de MicrosipSettings contra la BD configurada.
+    /// Devuelve por campo: tabla/columna, si el ID existe y el nombre real
+    /// del registro (ej. "CONTADO"). No modifica nada: 100% solo lectura.
+    /// </summary>
+    [HttpGet("ids-criticos")]
+    public async Task<IActionResult> GetIdsCriticos()
+    {
+        var connectionString = _configuration.GetConnectionString("FirebirdConnection");
+        var bd = string.IsNullOrWhiteSpace(connectionString) ? "" : ExtraerRutaBd(connectionString);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return Ok(new { conexion_ok = false, bd, error = "No hay cadena de conexion Firebird configurada.", campos = Array.Empty<object>() });
+
+        try
+        {
+            using var connection = new FbConnection(connectionString);
+            await connection.OpenAsync();
+
+            var campos = new List<object>();
+            var settings = _configuration.GetSection("MicrosipSettings");
+
+            // (Clave, Tabla, Columna, Id, Descripcion, EsAviso, CatalogoBusqueda)
+            var escalares = new (string, string, string, int, string, bool, string)[]
+            {
+                ("DefaultMonedaId", "MONEDAS", "MONEDA_ID", settings.GetValue("DefaultMonedaId", 1), "Moneda base", false, "monedas"),
+                ("DefaultCondPagoId", "CONDICIONES_PAGO", "COND_PAGO_ID", settings.GetValue("DefaultCondPagoId", 1), "Condicion de pago por defecto", false, "condiciones_pago"),
+                ("DefaultSucursalId", "SUCURSALES", "SUCURSAL_ID", settings.GetValue("DefaultSucursalId", 4274), "Sucursal por defecto", false, "sucursales"),
+                ("DefaultAlmacenId", "ALMACENES", "ALMACEN_ID", settings.GetValue("DefaultAlmacenId", 19), "Almacen por defecto", false, "almacenes"),
+                ("DefaultImpuestoId", "IMPUESTOS", "IMPUESTO_ID", settings.GetValue("DefaultImpuestoId", 622), "Impuesto por defecto", false, "impuestos"),
+                ("DefaultPrecioEmpresaId", "PRECIOS_EMPRESA", "PRECIO_EMPRESA_ID", settings.GetValue("DefaultPrecioEmpresaId", 42), "Precio empresa (lista de precios)", false, "precios_empresa"),
+                ("DefaultFormaCobroId", "FORMAS_COBRO", "FORMA_COBRO_ID", settings.GetValue("DefaultFormaCobroId", 67), "Forma de cobro contado", false, "formas_cobro"),
+                ("DefaultCajeroId", "CAJEROS", "CAJERO_ID", settings.GetValue("DefaultCajeroId", 2419), "Cajero fallback (si no hay cajero por USUARIO)", true, "cajeros"),
+                ("DefaultConceptoCobroId", "CONCEPTOS_CC", "CONCEPTO_CC_ID", settings.GetValue("DefaultConceptoCobroId", 11), "Concepto de cobro (abono CxC)", false, "conceptos_cc"),
+            };
+
+            foreach (var (clave, tabla, columna, id, desc, aviso, catalogo) in escalares)
+                campos.Add(await ValidarIdAsync(connection, clave, tabla, columna, id, desc, aviso, catalogo, null));
+
+            var creditIds = settings.GetSection("CreditFormaCobroIds").Get<int[]>() ?? Array.Empty<int>();
+            for (int i = 0; i < creditIds.Length; i++)
+                campos.Add(await ValidarIdAsync(connection, "CreditFormaCobroIds", "FORMAS_COBRO", "FORMA_COBRO_ID",
+                    creditIds[i], $"Forma de cobro a credito [{i + 1}]", true, "formas_cobro", i));
+
+            return Ok(new { conexion_ok = true, bd, campos });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validando IDs criticos");
+            return Ok(new { conexion_ok = false, bd, error = ex.Message, campos = Array.Empty<object>() });
+        }
+    }
+
+    /// <summary>
+    /// GET /api/v2/admin/catalogos/{catalogo}?q=...
+    /// Consultas PREDEFINIDAS para buscar el ID correcto de un catalogo
+    /// (MONEDAS, CONDICIONES_PAGO, SUCURSALES, ALMACENES, IMPUESTOS,
+    /// FORMAS_COBRO, CAJEROS, CONCEPTOS_CC, PRECIOS_EMPRESA).
+    /// Busca por nombre (LIKE) o por ID exacto. La columna de nombre se
+    /// descubre de los metadatos porque cada BD Microsip la nombra distinto
+    /// (DESCRIPCION vs NOMBRE).
+    /// </summary>
+    [HttpGet("catalogos/{catalogo}")]
+    public async Task<IActionResult> BuscarCatalogo(string catalogo, string? q = null, int limite = 50)
+    {
+        var connectionString = _configuration.GetConnectionString("FirebirdConnection");
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return BadRequest(new { message = "No hay cadena de conexion Firebird configurada." });
+
+        if (!Catalogos.TryGetValue(catalogo.ToLowerInvariant(), out var spec))
+            return NotFound(new { message = $"Catalogo desconocido '{catalogo}'. Validos: {string.Join(", ", Catalogos.Keys)}" });
+
+        limite = Math.Clamp(limite, 1, 200);
+
+        try
+        {
+            using var connection = new FbConnection(connectionString);
+            await connection.OpenAsync();
+
+            var nombreCol = await DescubrirColumnaNombreAsync(connection, spec.Tabla, spec.IdColumna);
+
+            // Columnas extra que si existan en esta BD (TIPO, USUARIO, PCTJE...)
+            var extras = new List<string>();
+            foreach (var extra in spec.Extra)
+                if (await ExisteColumnaAsync(connection, spec.Tabla, extra))
+                    extras.Add(extra);
+
+            var qTrim = q?.Trim() ?? "";
+            if (!string.IsNullOrEmpty(qTrim) && string.IsNullOrEmpty(nombreCol) && !int.TryParse(qTrim, out _))
+                return Ok(Array.Empty<object>()); // sin columna de nombre no hay busqueda textual
+
+            var seleccion = spec.IdColumna;
+            if (!string.IsNullOrEmpty(nombreCol))
+                seleccion += $", TRIM({nombreCol}) AS NOMBRE_ACTUAL";
+            foreach (var extra in extras)
+                seleccion += $", TRIM({extra}) AS {extra}";
+
+            string where = "";
+            if (!string.IsNullOrEmpty(qTrim))
+            {
+                if (int.TryParse(qTrim, out _))
+                    where = $"WHERE {spec.IdColumna} = @Q OR UPPER(TRIM({NombreSql(nombreCol)})) LIKE UPPER(@Pat)";
+                else
+                    where = $"WHERE UPPER(TRIM({NombreSql(nombreCol)})) LIKE UPPER(@Pat)";
+            }
+
+            var sql = $"SELECT FIRST @Limite {seleccion} FROM {spec.Tabla} {where} ORDER BY {spec.IdColumna}";
+            var rows = await connection.QueryAsync(sql,
+                new { Q = int.TryParse(qTrim, out var n) ? n : -1, Pat = "%" + qTrim + "%", Limite = limite });
+
+            var resultado = new List<object>();
+            foreach (var row in rows)
+            {
+                var dict = (IDictionary<string, object?>)row;
+                resultado.Add(new
+                {
+                    id = Convert.ToInt32(dict[spec.IdColumna]),
+                    nombre = dict.TryGetValue("NOMBRE_ACTUAL", out var nm) ? nm?.ToString() ?? "" : "",
+                    extra = string.Join(" · ", extras
+                        .Select(e => dict.TryGetValue(e, out var v) ? (v?.ToString() ?? "").Trim() : "")
+                        .Where(s => s.Length > 0))
+                });
+            }
+
+            return Ok(resultado);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error buscando en catalogo {Catalogo}", catalogo);
+            return StatusCode(500, new { message = "No se pudo consultar el catalogo: " + ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Catalogos disponibles para la busqueda predefinida.
+    /// Tabla, columna ID y columnas informativas opcionales.
+    /// </summary>
+    private static readonly Dictionary<string, (string Tabla, string IdColumna, string[] Extra)> Catalogos = new()
+    {
+        ["monedas"] = ("MONEDAS", "MONEDA_ID", Array.Empty<string>()),
+        ["condiciones_pago"] = ("CONDICIONES_PAGO", "COND_PAGO_ID", Array.Empty<string>()),
+        ["sucursales"] = ("SUCURSALES", "SUCURSAL_ID", Array.Empty<string>()),
+        ["almacenes"] = ("ALMACENES", "ALMACEN_ID", Array.Empty<string>()),
+        ["impuestos"] = ("IMPUESTOS", "IMPUESTO_ID", new[] { "PCTJE_IMPUESTO" }),
+        ["formas_cobro"] = ("FORMAS_COBRO", "FORMA_COBRO_ID", new[] { "TIPO" }),
+        ["cajeros"] = ("CAJEROS", "CAJERO_ID", new[] { "USUARIO" }),
+        ["conceptos_cc"] = ("CONCEPTOS_CC", "CONCEPTO_CC_ID", Array.Empty<string>()),
+        ["precios_empresa"] = ("PRECIOS_EMPRESA", "PRECIO_EMPRESA_ID", Array.Empty<string>()),
+    };
+
+    private async Task<object> ValidarIdAsync(
+        FbConnection connection, string clave, string tabla, string columna, int id,
+        string descripcion, bool esAviso, string catalogo, int? posicion)
+    {
+        try
+        {
+            var existe = await connection.ExecuteScalarAsync<int>(
+                $"SELECT COUNT(*) FROM {tabla} WHERE {columna} = @Id", new { Id = id }) > 0;
+
+            string? nombre = null;
+            if (existe)
+            {
+                var nombreCol = await DescubrirColumnaNombreAsync(connection, tabla, columna);
+                if (!string.IsNullOrEmpty(nombreCol))
+                {
+                    nombre = await connection.ExecuteScalarAsync<string?>(
+                        $"SELECT TRIM({nombreCol}) FROM {tabla} WHERE {columna} = @Id", new { Id = id });
+                    nombre = string.IsNullOrWhiteSpace(nombre) ? null : nombre.Trim();
+                }
+            }
+
+            return new
+            {
+                clave, descripcion, tabla, columna, id_actual = id,
+                valido = existe, es_aviso = esAviso, catalogo, posicion,
+                nombre_actual = nombre
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validando {Tabla}.{Columna}={Id}", tabla, columna, id);
+            return new
+            {
+                clave, descripcion, tabla, columna, id_actual = id,
+                valido = false, es_aviso = esAviso, catalogo, posicion,
+                nombre_actual = (string?)null, error = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Descubre la columna de "nombre" de una tabla: prueba DESCRIPCION/NOMBRE
+    /// y si no existen toma la primera columna CHAR/VARCHAR que no sea el ID.
+    /// Cada BD Microsip nombra la columna distinto, por eso se hace dinamico.
+    /// </summary>
+    private static async Task<string> DescubrirColumnaNombreAsync(FbConnection connection, string tabla, string columnaId)
+    {
+        try
+        {
+            var columnas = (await connection.QueryAsync<string>(@"
+                SELECT TRIM(rf.RDB$FIELD_NAME)
+                FROM RDB$RELATION_FIELDS rf
+                JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME = rf.RDB$FIELD_SOURCE
+                WHERE TRIM(rf.RDB$RELATION_NAME) = @Tabla
+                  AND f.RDB$FIELD_TYPE IN (37, 14)
+                  AND TRIM(rf.RDB$FIELD_NAME) <> @ColumnaId
+                ORDER BY rf.RDB$FIELD_POSITION", new { Tabla = tabla, ColumnaId = columnaId }))
+                .Select(c => (c ?? "").Trim())
+                .Where(c => c.Length > 0)
+                .ToList();
+
+            foreach (var candidata in new[] { "DESCRIPCION", "NOMBRE" })
+            {
+                var encontrada = columnas.FirstOrDefault(c => c.Equals(candidata, StringComparison.OrdinalIgnoreCase));
+                if (encontrada != null && EsNombreSeguro(encontrada))
+                    return encontrada;
+            }
+            return columnas.FirstOrDefault(EsNombreSeguro) ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Solo permite identificadores seguros para interpolar en SQL.
+    /// Las columnas/tablas vienen de diccionarios fijos o de metadatos
+    /// (RDB$), pero se valida por si acaso (misma defensa que FkResolverService).
+    /// </summary>
+    private static bool EsNombreSeguro(string nombre) =>
+        nombre.Length > 0 && nombre.Length <= 128 && nombre.All(ch => char.IsLetterOrDigit(ch) || ch == '_');
+
+    private static async Task<bool> ExisteColumnaAsync(FbConnection connection, string tabla, string columna)
+    {
+        try
+        {
+            var n = await connection.ExecuteScalarAsync<int>(@"
+                SELECT COUNT(*) FROM RDB$RELATION_FIELDS
+                WHERE TRIM(RDB$RELATION_NAME) = @Tabla AND TRIM(RDB$FIELD_NAME) = @Columna",
+                new { Tabla = tabla, Columna = columna });
+            return n > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string NombreSql(string nombreCol) => string.IsNullOrEmpty(nombreCol) ? "NULL" : nombreCol;
+
+    private static string ExtraerRutaBd(string connectionString)
+    {
+        foreach (var parte in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var idx = parte.IndexOf('=');
+            if (idx <= 0) continue;
+            if (parte[..idx].Trim().Equals("Database", StringComparison.OrdinalIgnoreCase))
+                return parte[(idx + 1)..].Trim();
+        }
+        return connectionString;
+    }
+
     public class SyncMatutinoRequest
     {
         public int? VendedorId { get; set; }

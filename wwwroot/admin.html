@@ -267,6 +267,102 @@
   }
   .audit-empty { font-size: 13px; color: var(--text-muted); padding: 8px 2px; }
 
+  /* ===== Validacion de IDs por campo ===== */
+  .id-row { display: flex; gap: 8px; align-items: stretch; }
+  .id-row input { flex: 1; min-width: 0; }
+  .btn-buscar {
+    flex: 0 0 auto;
+    font-size: 15px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0 13px;
+    cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .btn-buscar:hover { border-color: var(--primary); background: #F0F5F8; }
+  .btn-buscar:disabled { opacity: .45; cursor: not-allowed; }
+  .id-status {
+    margin-top: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 16px;
+  }
+  .id-status.ok   { color: var(--green); }
+  .id-status.err  { color: var(--red); }
+  .id-status.warn { color: var(--amber); }
+  .id-status.pend { color: var(--text-muted); }
+  .chip-id {
+    display: inline-flex; align-items: center;
+    font-size: 12px; font-weight: 600;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .chip-ok   { color: var(--green); }
+  .chip-warn { color: var(--amber); }
+  .chip-err  { color: var(--red); }
+  .field input:disabled {
+    background: #F3F4F6;
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+  .field-note { margin-top: 14px; font-size: 12px; color: var(--text-muted); }
+
+  /* ===== Modal buscador de IDs ===== */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(15, 23, 42, .45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 900;
+    padding: 20px;
+  }
+  .modal {
+    background: var(--white);
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.25);
+    width: 100%; max-width: 620px;
+    max-height: 80vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-head h3 { font-size: 16px; color: var(--primary); flex: 1; }
+  .modal-close { border: none; background: none; font-size: 20px; cursor: pointer; color: var(--text-muted); line-height: 1; }
+  .modal-close:hover { color: var(--danger); }
+  .modal-search {
+    padding: 14px 20px;
+    display: flex; gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-search input {
+    flex: 1; font-size: 14px; padding: 9px 12px;
+    border: 1px solid var(--border); border-radius: 8px; font-family: inherit;
+  }
+  .modal-search input:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 56, 89, .12);
+  }
+  .modal-body { overflow: auto; padding: 10px 8px; }
+  .modal-row {
+    display: flex; align-items: baseline; gap: 12px;
+    padding: 9px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 13px;
+  }
+  .modal-row:hover { background: #F0F5F8; }
+  .modal-row .m-id { font-weight: 700; color: var(--primary); min-width: 60px; }
+  .modal-row .m-nombre { font-weight: 600; }
+  .modal-row .m-extra { color: var(--text-muted); font-size: 12px; margin-left: auto; }
+  .modal-empty { padding: 18px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
   .footer-note {
     text-align: center;
     font-size: 12px;
@@ -323,24 +419,96 @@
     <div class="card-header">
       <div class="tick"></div>
       <h2>IDs Microsip</h2>
-      <span class="sub">MicrosipSettings</span>
+      <span class="sub">MicrosipSettings · validados contra la BD configurada</span>
     </div>
     <div class="card-body">
       <div class="grid">
-        <div class="field"><label>Moneda</label><input type="number" data-cfg="MicrosipSettings.DefaultMonedaId"></div>
-        <div class="field"><label>Condición de pago</label><input type="number" data-cfg="MicrosipSettings.DefaultCondPagoId"></div>
-        <div class="field"><label>Sucursal</label><input type="number" data-cfg="MicrosipSettings.DefaultSucursalId"></div>
-        <div class="field"><label>Almacén</label><input type="number" data-cfg="MicrosipSettings.DefaultAlmacenId"></div>
-        <div class="field"><label>Impuesto</label><input type="number" data-cfg="MicrosipSettings.DefaultImpuestoId"></div>
-        <div class="field"><label>Precio empresa</label><input type="number" data-cfg="MicrosipSettings.DefaultPrecioEmpresaId"></div>
-        <div class="field"><label>Forma de cobro</label><input type="number" data-cfg="MicrosipSettings.DefaultFormaCobroId"></div>
-        <div class="field"><label>Cajero (fallback)</label><input type="number" data-cfg="MicrosipSettings.DefaultCajeroId"></div>
-        <div class="field"><label>Concepto cobro</label><input type="number" data-cfg="MicrosipSettings.DefaultConceptoCobroId"></div>
+        <div class="field" data-campo-id="DefaultMonedaId" data-catalogo="monedas">
+          <label>Moneda</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultMonedaId">
+            <button type="button" class="btn-buscar" title="Buscar en MONEDAS">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultCondPagoId" data-catalogo="condiciones_pago">
+          <label>Condición de pago</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultCondPagoId">
+            <button type="button" class="btn-buscar" title="Buscar en CONDICIONES_PAGO">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultSucursalId" data-catalogo="sucursales">
+          <label>Sucursal</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultSucursalId">
+            <button type="button" class="btn-buscar" title="Buscar en SUCURSALES">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultAlmacenId" data-catalogo="almacenes">
+          <label>Almacén</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultAlmacenId">
+            <button type="button" class="btn-buscar" title="Buscar en ALMACENES">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultImpuestoId" data-catalogo="impuestos">
+          <label>Impuesto</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultImpuestoId">
+            <button type="button" class="btn-buscar" title="Buscar en IMPUESTOS">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultPrecioEmpresaId" data-catalogo="precios_empresa">
+          <label>Precio empresa</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultPrecioEmpresaId">
+            <button type="button" class="btn-buscar" title="Buscar en PRECIOS_EMPRESA">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultFormaCobroId" data-catalogo="formas_cobro">
+          <label>Forma de cobro</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultFormaCobroId">
+            <button type="button" class="btn-buscar" title="Buscar en FORMAS_COBRO">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultCajeroId" data-catalogo="cajeros">
+          <label>Cajero (fallback)</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultCajeroId">
+            <button type="button" class="btn-buscar" title="Buscar en CAJEROS">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field" data-campo-id="DefaultConceptoCobroId" data-catalogo="conceptos_cc">
+          <label>Concepto cobro</label>
+          <div class="id-row">
+            <input type="number" data-cfg="MicrosipSettings.DefaultConceptoCobroId">
+            <button type="button" class="btn-buscar" title="Buscar en CONCEPTOS_CC">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
+        <div class="field full" data-campo-array="CreditFormaCobroIds" data-catalogo="formas_cobro">
+          <label>Formas de cobro a crédito (IDs separados por coma)</label>
+          <div class="id-row">
+            <input type="text" id="cfg-credit-formas" placeholder="71, 703, 2205">
+            <button type="button" class="btn-buscar" title="Buscar en FORMAS_COBRO">🔍</button>
+          </div>
+          <div class="id-status"></div>
+        </div>
         <div class="field">
           <label>Aplicar venta automática</label>
           <label class="check"><input type="checkbox" data-cfg-check="MicrosipSettings.AplicarVentaAutomatica"> Al registrar, aplicar documento (APLICADO='S')</label>
         </div>
       </div>
+      <p class="field-note">Los campos con ✓ son correctos y quedan bloqueados. Los que marcan ✗ deben corregirse: usa 🔍 para consultar el ID correcto en la BD.</p>
     </div>
   </section>
 
@@ -424,6 +592,23 @@
   <p class="footer-note">RUTX · Panel de administración local · los cambios se aplican en caliente (reloadOnChange)</p>
 </main>
 
+<!-- ================= Modal buscador de IDs ================= -->
+<div class="modal-backdrop" id="modal-buscador" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-titulo">🔍 Buscar en la BD</h3>
+      <button type="button" class="modal-close" id="modal-cerrar" title="Cerrar">✕</button>
+    </div>
+    <div class="modal-search">
+      <input type="text" id="modal-q" placeholder="Escribe un nombre o un ID…" autocomplete="off">
+      <button type="button" class="btn btn-primary" id="modal-buscar">Buscar</button>
+    </div>
+    <div class="modal-body" id="modal-resultados">
+      <div class="modal-empty">Escribe algo para buscar…</div>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -469,6 +654,9 @@ async function cargarConfig() {
       const v = getPath(configActual, inp.dataset.cfgCheck);
       inp.checked = v === true;
     });
+    const creditArr = getPath(configActual, 'MicrosipSettings.CreditFormaCobroIds');
+    const creditInp = document.getElementById('cfg-credit-formas');
+    if (creditInp) creditInp.value = Array.isArray(creditArr) ? creditArr.join(', ') : '';
     toast('Configuración cargada');
   } catch (e) {
     toast('No se pudo leer la configuración: ' + e.message, 'err');
@@ -521,10 +709,14 @@ async function guardarConfig() {
     setPath(nuevo, inp.dataset.cfgCheck, inp.checked);
   });
 
-  // Conservar arreglos y campos no editados del archivo real
-  if (configActual.MicrosipSettings && Array.isArray(configActual.MicrosipSettings.CreditFormaCobroIds)) {
-    nuevo.MicrosipSettings.CreditFormaCobroIds = configActual.MicrosipSettings.CreditFormaCobroIds;
-  }
+  // Formas de cobro a credito: lista de IDs separados por coma
+  const creditInp = document.getElementById('cfg-credit-formas');
+  const creditIds = (creditInp?.value || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => /^\d+$/.test(s))
+    .map(Number);
+  nuevo.MicrosipSettings.CreditFormaCobroIds = creditIds;
 
   try {
     const res = await fetch('/api/v2/admin/config', {
@@ -535,6 +727,9 @@ async function guardarConfig() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
     toast('✔ Configuración guardada (respaldo .bak creado)');
+    cargarConfig();
+    cargarIdsCriticos();
+    cargarAuditoria();
   } catch (e) {
     toast('Error al guardar: ' + e.message, 'err');
   } finally {
@@ -676,13 +871,181 @@ async function cargarAuditoria() {
   }
 }
 
+/* ---------- Validacion de IDs criticos (por campo) ---------- */
+async function cargarIdsCriticos() {
+  const todos = document.querySelectorAll('[data-campo-id] .id-status, [data-campo-array] .id-status');
+  todos.forEach(el => { el.className = 'id-status pend'; el.textContent = '⏳ Validando contra la BD…'; });
+  try {
+    const res = await fetch('/api/v2/admin/ids-criticos', { cache: 'no-store' });
+    const data = await res.json();
+
+    if (!data.conexion_ok) {
+      document.querySelectorAll('[data-campo-id], [data-campo-array]').forEach(c => {
+        const st = c.querySelector('.id-status');
+        st.className = 'id-status err';
+        st.textContent = '✗ BD no disponible: ' + (data.error || 'sin conexión');
+        const inp = c.querySelector('input');
+        if (inp) inp.disabled = false;
+      });
+      return;
+    }
+
+    document.querySelectorAll('[data-campo-id]').forEach(campo => {
+      const item = (data.campos || []).find(c => c.clave === campo.dataset.campoId);
+      const st = campo.querySelector('.id-status');
+      const inp = campo.querySelector('input');
+      if (!item) { st.className = 'id-status pend'; st.textContent = 'No verificado'; return; }
+      if (inp) inp.value = item.id_actual;
+      pintarEstadoCampo(campo, item);
+    });
+
+    const campoArr = document.querySelector('[data-campo-array]');
+    if (campoArr) {
+      const st = campoArr.querySelector('.id-status');
+      const items = (data.campos || []).filter(c => c.clave === 'CreditFormaCobroIds');
+      st.className = 'id-status';
+      st.innerHTML = '';
+      if (!items.length) {
+        st.className = 'id-status pend';
+        st.textContent = 'Sin formas de cobro a crédito configuradas';
+      } else {
+        items.forEach(item => {
+          const chip = document.createElement('span');
+          chip.className = 'chip-id ' + (item.valido ? 'chip-ok' : (item.es_aviso ? 'chip-warn' : 'chip-err'));
+          chip.textContent = (item.valido ? '✓ ' : '✗ ') + item.id_actual + (item.nombre_actual ? ' · ' + item.nombre_actual : '');
+          chip.title = item.descripcion + ' (' + item.tabla + '.' + item.columna + ')';
+          st.appendChild(chip);
+        });
+      }
+    }
+  } catch (e) {
+    document.querySelectorAll('[data-campo-id] .id-status, [data-campo-array] .id-status').forEach(el => {
+      el.className = 'id-status err';
+      el.textContent = '✗ Error validando: ' + e.message;
+    });
+  }
+}
+
+function pintarEstadoCampo(campo, item) {
+  const st = campo.querySelector('.id-status');
+  const inp = campo.querySelector('input');
+  const btn = campo.querySelector('.btn-buscar');
+  if (item.valido) {
+    inp.disabled = true;
+    st.className = 'id-status ok';
+    st.textContent = '✓ ' + (item.nombre_actual || 'Existe') + ' · ' + item.tabla + '.' + item.columna;
+    if (btn) btn.disabled = true;
+  } else {
+    inp.disabled = false;
+    if (item.error) {
+      // No se pudo verificar (tabla inexistente, error de BD...): avisar el motivo real
+      st.className = 'id-status warn';
+      st.textContent = '⚠ No verificable: ' + item.error + ' — usa 🔍 para elegir un ID';
+    } else {
+      st.className = 'id-status ' + (item.es_aviso ? 'warn' : 'err');
+      st.textContent = '✗ El ID ' + item.id_actual + ' no existe en ' + item.tabla + ' — usa 🔍 para buscar el correcto';
+    }
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* ---------- Buscador de IDs (consultas predefinidas) ---------- */
+let buscadorContexto = null;
+
+function abrirBuscador(catalogo, titulo, onSelect) {
+  buscadorContexto = { catalogo, onSelect };
+  document.getElementById('modal-titulo').textContent = '🔍 ' + titulo;
+  document.getElementById('modal-q').value = '';
+  document.getElementById('modal-resultados').innerHTML = '<div class="modal-empty">Cargando…</div>';
+  document.getElementById('modal-buscador').hidden = false;
+  document.getElementById('modal-q').focus();
+  ejecutarBusqueda();
+}
+
+function cerrarBuscador() {
+  document.getElementById('modal-buscador').hidden = true;
+  buscadorContexto = null;
+}
+
+async function ejecutarBusqueda() {
+  const ctx = buscadorContexto;
+  if (!ctx) return;
+  const q = document.getElementById('modal-q').value.trim();
+  const box = document.getElementById('modal-resultados');
+  box.innerHTML = '<div class="modal-empty">⏳ Buscando…</div>';
+  try {
+    const res = await fetch('/api/v2/admin/catalogos/' + ctx.catalogo + '?q=' + encodeURIComponent(q) + '&limite=50', { cache: 'no-store' });
+    if (!res.ok) { box.innerHTML = '<div class="modal-empty">Error: HTTP ' + res.status + '</div>'; return; }
+    const filas = await res.json();
+    if (!filas.length) { box.innerHTML = '<div class="modal-empty">Sin resultados para «' + (q || 'el catálogo') + '»</div>'; return; }
+    box.innerHTML = '';
+    filas.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'modal-row';
+      const idSpan = document.createElement('span');
+      idSpan.className = 'm-id';
+      idSpan.textContent = f.id;
+      const nom = document.createElement('span');
+      nom.className = 'm-nombre';
+      nom.textContent = f.nombre || '(sin nombre)';
+      row.appendChild(idSpan);
+      row.appendChild(nom);
+      if (f.extra) {
+        const ex = document.createElement('span');
+        ex.className = 'm-extra';
+        ex.textContent = f.extra;
+        row.appendChild(ex);
+      }
+      row.addEventListener('click', () => {
+        ctx.onSelect(f.id, f.nombre);
+        cerrarBuscador();
+      });
+      box.appendChild(row);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="modal-empty">Error de conexión: ' + e.message + '</div>';
+  }
+}
+
 /* ---------- Bindings ---------- */
 document.getElementById('btn-guardar').addEventListener('click', guardarConfig);
 document.getElementById('btn-sync').addEventListener('click', syncMatutino);
-document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); cargarAuditoria(); });
+document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); cargarIdsCriticos(); cargarAuditoria(); });
+
+// Buscador de IDs: un clic en 🔍 abre el catalogo correspondiente
+// y al elegir un resultado lo escribe en el campo (se re-valida al guardar).
+document.querySelectorAll('.btn-buscar').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const campo = btn.closest('[data-campo-id]') || btn.closest('[data-campo-array]');
+    if (!campo) return;
+    const esArray = campo.hasAttribute('data-campo-array');
+    const inp = campo.querySelector('input');
+    const etiqueta = campo.querySelector('label').textContent.trim();
+    abrirBuscador(campo.dataset.catalogo, etiqueta, (id) => {
+      if (esArray) {
+        const actuales = (inp.value || '').split(',').map(s => s.trim()).filter(Boolean);
+        if (!actuales.includes(String(id))) actuales.push(String(id));
+        inp.value = actuales.join(', ');
+      } else {
+        inp.value = id;
+        inp.disabled = false;
+      }
+      const st = campo.querySelector('.id-status');
+      st.className = 'id-status pend';
+      st.textContent = '↻ Guarda la configuración para re-validar';
+    });
+  });
+});
+
+document.getElementById('modal-cerrar').addEventListener('click', cerrarBuscador);
+document.getElementById('modal-buscar').addEventListener('click', ejecutarBusqueda);
+document.getElementById('modal-q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); ejecutarBusqueda(); } });
+document.getElementById('modal-buscador').addEventListener('click', e => { if (e.target.id === 'modal-buscador') cerrarBuscador(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarBuscador(); });
 
 cargarConfig();
 cargarVendedores();
+cargarIdsCriticos();
 chequearApi();
 cargarAuditoria();
 setInterval(chequearApi, 8000);

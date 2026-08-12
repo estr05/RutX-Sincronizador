@@ -20,16 +20,18 @@ public class InstalacionInfo
 }
 
 /// <summary>
-/// Crea la estructura estandarizada de instalacion del sincronizador:
+/// Crea la estructura plana de instalacion del sincronizador:
 ///   C:\ProgramData\RUTX\Sincronizador\
-///   ├── Ejecutables\   (Rutx.Sincronizador.exe + DLLs; la Admin no se copia,
-///   │                   se publica junto a ella en el mismo repo/folder)
-///   ├── wwwroot\       (panel /admin — ContentRoot = raiz)
-///   ├── appsettings.json (config del cliente: BD, usuario, password, IDs)
-///   ├── Data\          (cola SQLite — se auto-crea tambien)
-///   ├── Logs\          (bitacora opcional)
-///   ├── backups\       (respaldos .bak del panel web)
-///   └── instalacion.json (marcador leido por el launcher)
+///   ├── Rutx.Sincronizador.exe  (y DLLs del sync)
+///   ├── wwwroot\                (panel /admin)
+///   ├── appsettings.json        (config: BD, usuario, password, IDs)
+///   ├── Data\                   (cola SQLite — se auto-crea tambien)
+///   ├── Logs\                   (bitacora opcional)
+///   ├── backups\                (respaldos .bak del panel web)
+///   └── instalacion.json        (marcador leido por el launcher)
+///
+/// Layout plano: ContentRootPath = AppContext.BaseDirectory = raiz.
+/// El exe, appsettings y wwwroot viven juntos en la raiz.
 /// </summary>
 public static class InstalacionHelper
 {
@@ -38,10 +40,10 @@ public static class InstalacionHelper
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "RUTX", "Sincronizador");
 
-    // Subcarpetas que viven en la raiz (no junto al exe)
-    private static readonly string[] CarpetasRaiz = { "Ejecutables", "wwwroot", "Data", "Logs", "backups" };
+    // Subcarpetas que se crean en la raiz (junto al exe)
+    private static readonly string[] CarpetasRaiz = { "wwwroot", "Data", "Logs", "backups" };
 
-    // Archivos que NO se copian del folder de build del sync a Ejecutables\
+    // Archivos que NO se copian del folder de build a la raiz
     private static readonly string[] ExcluirPatrones =
     {
         "Data",                  // cola SQLite: es por-instalacion
@@ -79,9 +81,8 @@ public static class InstalacionHelper
         foreach (var carpeta in CarpetasRaiz)
             Directory.CreateDirectory(Path.Combine(raiz, carpeta));
 
-        // ---- 3. Copiar ejecutables (todo el folder de build, menos lo excluido) ----
-        var carpetaEjecutables = Path.Combine(raiz, "Ejecutables");
-        CopiarDirectorio(carpetaFuenteSync, carpetaEjecutables);
+        // ---- 3. Copiar ejecutables (exe + DLLs) directo a la raiz ----
+        CopiarDirectorio(carpetaFuenteSync, raiz);
 
         // ---- 4. Copiar wwwroot a la raiz ----
         var wwwrootOrigen = Path.Combine(carpetaFuenteSync, "wwwroot");
@@ -102,7 +103,7 @@ public static class InstalacionHelper
         var info = new InstalacionInfo
         {
             Raiz = raiz,
-            ExeSync = Path.Combine(carpetaEjecutables, "Rutx.Sincronizador.exe"),
+            ExeSync = Path.Combine(raiz, "Rutx.Sincronizador.exe"),
             ExeAdmin = Path.Combine(AppContext.BaseDirectory, "Rutx.Sincronizador.Admin.exe"),
             Fecha = DateTime.Now,
             BdPath = Path.GetFullPath(rutaFdb),

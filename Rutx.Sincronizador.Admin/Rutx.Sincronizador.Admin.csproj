@@ -14,6 +14,7 @@
     <!-- Driver Firebird: lo usa FbConexionHelper en el wizard de instalacion
          (probar conexion con la BD elegida, 100% solo lectura). -->
     <PackageReference Include="FirebirdSql.Data.FirebirdClient" Version="10.3.4" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.11" />
   </ItemGroup>
 
 </Project>

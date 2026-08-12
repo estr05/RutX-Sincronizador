@@ -5,7 +5,7 @@
 | **Software** | Sincronizador RUTX (.NET 10) |
 | **Versión** | 1.0 |
 | **Fecha** | Agosto 2026 |
-| **Componentes** | `Rutx.Sincronizador.Admin.exe` (launcher) · `Rutx.Sincronizador.exe` (API, puerto 5047) |
+| **Componentes** | `Rutx.Sincronizador.Admin.exe` (launcher) · `Rutx.Sincronizador.exe` (API como servicio Windows, puerto 5047) |
 
 Este manual describe cómo preparar e instalar el Sincronizador RUTX. El
 Sincronizador actúa como puente entre la app móvil RUTX y la base de datos de
@@ -205,17 +205,26 @@ instalación; el launcher la detecta automáticamente en los arranques siguiente
 
 ## 4. Operación diaria (launcher)
 
-Al abrir `Rutx.Sincronizador.Admin.exe` (carpeta `C:\Sincronizador`, o el acceso
-directo del escritorio) se muestra la ventana principal:
+Al abrir `Rutx.Sincronizador.Admin.exe` se muestra la ventana principal:
 
 | Botón | Función |
 |---|---|
-| **▶ Iniciar** | Arranca la API en `:5047` |
-| **⏹ Detener** | Detiene la API |
+| **▶ Iniciar** | Arranca la API en `:5047` (o inicia el servicio Windows si está instalado) |
+| **⏹ Detener** | Detiene la API (o detiene el servicio Windows) |
 | **⚙ Conf (web)** | Abre el panel web `http://localhost:5047/admin` (inicia la API si es necesario) |
 | **📋 Copy logs** | Copia los logs de la ventana al portapapeles |
+| **🔧 Instalar servicio** | Instala el Sincronizador como servicio de Windows (requiere admin) |
 
-- **Estado**: `● En ejecución · :5047` / `● Detenido`.
+**Comportamiento de bandeja**: al cerrar la ventana (X), el launcher se minimiza
+a la bandeja del sistema (no mata el proceso). Para cerrar definitivamente,
+haz clic derecho en el icono de bandeja → **Salir**.
+
+**Servicio Windows** (opcional pero recomendado): si instalas el servicio,
+el sincronizador arranca automáticamente con Windows, sobrevive al cierre de
+sesión y se reinicia si falla. Puedes gestionarlo desde el launcher o con
+`sc query RutxSincronizador`.
+
+- **Estado**: `● En ejecución · :5047` / `● Servicio activo · :5047` / `● Detenido`.
 - **Logs**: verde = INFO · amarillo = WARN · rojo = ERROR.
 
 > **[Captura de pantalla: ventana principal del launcher con logs]**
@@ -279,17 +288,19 @@ Confirma que la instalación quedó operativa:
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `MSB1001: Modificador desconocido` o `Falta el argumento requerido para la opción: '-c'` al publicar | El comando se escribió mal o se pegó partido (typo `--selfcontained`, comando cortado, etc.) | Evita escribir a mano: doble clic en `publicar.bat` (sección 2.2). Si insistes con comandos: `--self-contained` (con guion), `Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj`, desde la raíz del repositorio |
-| "Ya hay una instancia del Sincronizador ejecutándose" | Otra instancia activa o proceso huérfano en :5047 | Cierra el launcher/terminal anterior o ejecuta `taskkill /F /PID <pid>` sobre el proceso que escucha en 5047 |
-| "No se localizó `Rutx.Sincronizador.exe`" | El launcher no encuentra el ejecutable del sync | Verifica que ambos .exe estén en la misma carpeta (`C:\Sincronizador`); vuelve a ejecutar el asistente o ubica el archivo manualmente |
+| `MSB1001: Modificador desconocido` al publicar | El comando se escribió mal | Doble clic en `publicar.bat` (sección 2.2) |
+| "Ya hay una instancia del Sincronizador ejecutándose" | Otra instancia activa o servicio corriendo | Cierra el launcher/terminal o detén el servicio: `sc stop RutxSincronizador` |
+| "No se localizó `Rutx.Sincronizador.exe`" | El launcher no encuentra el ejecutable | Verifica que ambos .exe estén en la misma carpeta; vuelve a ejecutar el asistente |
 | "Publicador desconocido" al ejecutar | Ejecutables sin firma digital | **Más información → Ejecutar de todas formas** |
-| El panel `/admin` no carga | La API está detenida | Presiona **▶ Iniciar** (el botón **⚙ Conf (web)** inicia la API automáticamente) |
-| `Could not find file: wwwroot\admin.html` | La API se arrancó desde una carpeta sin `wwwroot` | Arranca desde el launcher instalado (usa la carpeta de instalación como raíz) |
-| Error de SQLite repetido (`SQLite Error 14`) | Falta la carpeta `Data\` en el directorio de trabajo | Arranca desde el launcher; si persiste, borra `Data\cola_offline.db` y reinicia |
-| La auditoría marca IDs faltantes | IDs por defecto de `MicrosipSettings` que no existen en la BD del cliente | Reasigna los `Default*Id` al valor real desde el panel web (sección 5.1) o crea el dato en Microsip (sección 8) |
-| La app móvil no conecta a la API | IP/puerto incorrectos, red WiFi distinta o firewall | Verifica la IP de la PC en la red (`IP:5047`), misma red que los vendedores, puerto 5047 abierto en el firewall |
-| La conexión a la BD falla en el paso 2 | Firebird detenido, puerto 3050 bloqueado o credenciales incorrectas | Confirma el servicio Firebird en la PC del cliente y prueba las credenciales reales |
-| Microsip no muestra los tickets del día | La caja abierta en PVenta no coincide con la del cajero | Verifica que el cajero tenga acceso de apertura/operación sobre la caja correcta (sección 8) |
+| El servicio no arranca al iniciar Windows | Servicio instalado pero en modo manual | Cambia a automático: `sc config RutxSincronizador start= delayed-auto` |
+| El servicio no se inicia | Firebird detenido, puerto 3050 bloqueado o permisos | Verifica el servicio Firebird y las credenciales en `appsettings.json` |
+| El panel `/admin` no carga | La API está detenida | Presiona **▶ Iniciar** o inicia el servicio |
+| `Could not find file: wwwroot\admin.html` | La API se arrancó desde una carpeta sin `wwwroot` | Arranca desde el launcher instalado |
+| Error de SQLite repetido (`SQLite Error 14`) | Falta la carpeta `Data\` | Arranca desde el launcher; borra `Data\cola_offline.db` si persiste |
+| La auditoría marca IDs faltantes | IDs por defecto que no existen en la BD | Reasigna los `Default*Id` desde el panel web (sección 5.1) |
+| La app móvil no conecta a la API | IP/puerto incorrectos, red o firewall | Verifica `IP:5047`, misma red que los vendedores, puerto abierto |
+| La conexión a la BD falla | Firebird detenido, puerto 3050 o credenciales | Confirma el servicio Firebird y las credenciales reales |
+| Microsip no muestra los tickets | La caja abierta no coincide | Verifica acceso del cajero a la caja correcta (sección 8) |
 
 ---
 
@@ -327,11 +338,11 @@ cerrado cuando sea posible.
 
 ## 9. Desinstalación / reversión
 
-1. En el launcher, presiona **⏹ Detener** y cierra la ventana.
-2. Elimina la carpeta de instalación `C:\ProgramData\RUTX\Sincronizador`
-   (incluye el marcador `instalacion.json`).
-3. Elimina la carpeta del disco `C:\Sincronizador` y la copia del USB.
-4. Para restaurar una configuración anterior, el panel web guarda respaldos
+1. En el launcher, presiona **⏹ Detener** (o **🔧 Servicio ON → Detener servicio**).
+2. Cierra el launcher (haz clic derecho en la bandeja → **Salir**).
+3. Si el servicio está instalado, desinstálalo: `sc delete RutxSincronizador`.
+4. Elimina la carpeta de instalación `C:\ProgramData\RUTX\Sincronizador`.
+5. Para restaurar una configuración anterior, el panel web guarda respaldos
    automáticos como `appsettings.json.bak`.
 
 ---

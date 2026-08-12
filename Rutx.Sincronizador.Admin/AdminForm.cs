@@ -5,9 +5,8 @@ namespace Rutx.Sincronizador.Admin;
 
 /// <summary>
 /// Ventana principal del launcher: botones simples arriba
-/// (Iniciar / Detener / Conf web) + logs del sincronizador al centro.
-/// Estilos: azul marino #003859, naranja #F6AD55, rojo #EF4444, grises neutros.
-/// Logs: verde INFO, amarillo WARN, rojo ERROR (consola Windows).
+/// (Iniciar / Detener / Conf web / Servicio) + logs al centro.
+/// Minimiza a bandeja al cerrar (no mata el proceso).
 /// </summary>
 public class AdminForm : Form
 {
@@ -26,15 +25,18 @@ public class AdminForm : Form
     private static readonly Color RojoError = Color.FromArgb(0xF8, 0x71, 0x71);
 
     private readonly SyncProcessController _sync = new();
+    private readonly NotifyIcon _trayIcon;
     private readonly Button _btnIniciar;
     private readonly Button _btnDetener;
     private readonly Button _btnConfWeb;
     private readonly Button _btnCopyLogs;
+    private readonly Button _btnServicio;
     private readonly Label _lblEstado;
     private readonly RichTextBox _txtLogs;
     private readonly System.Windows.Forms.Timer _timerEstado = new() { Interval = 1000 };
     private readonly System.Windows.Forms.Timer _timerCopy = new() { Interval = 1500 };
     private string _rutaExe;
+    private bool _servicioInstalado;
 
     public AdminForm()
     {
@@ -52,12 +54,31 @@ public class AdminForm : Form
             PrimerArranqueSinInstalacion();
         }
 
+        _servicioInstalado = ServiceHelper.Existe();
+
         Text = "RUTX · Sincronizador";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(820, 520);
         Size = new Size(960, 620);
         BackColor = Fondo;
         Font = new Font("Figtree", 10F, FontStyle.Regular);
+
+        // ===== Bandeja (NotifyIcon) =====
+        _trayIcon = new NotifyIcon
+        {
+            Text = "RUTX Sincronizador",
+            Visible = false,
+            Icon = SystemIcons.Application
+        };
+        var menuTray = new ContextMenuStrip();
+        menuTray.Items.Add("Abrir", null, (_, _) => MostrarVentana());
+        menuTray.Items.Add(new ToolStripSeparator());
+        menuTray.Items.Add("Iniciar servicio", null, (_, _) => EjecutarAccionServicio("iniciar"));
+        menuTray.Items.Add("Detener servicio", null, (_, _) => EjecutarAccionServicio("detener"));
+        menuTray.Items.Add(new ToolStripSeparator());
+        menuTray.Items.Add("Salir", null, (_, _) => SalirDefinitivamente());
+        _trayIcon.ContextMenuStrip = menuTray;
+        _trayIcon.DoubleClick += (_, _) => MostrarVentana();
 
         // ===== Barra superior con botones =====
         var topBar = new Panel
@@ -93,6 +114,12 @@ public class AdminForm : Form
             _btnCopyLogs.Text = "📋  Copy logs";
         };
 
+        _btnServicio = CrearBoton(
+            _servicioInstalado ? "🔧 Servicio ON" : "🔧 Instalar servicio",
+            _servicioInstalado ? Color.FromArgb(0x16, 0x6B, 0x34) : Color.FromArgb(0x6B, 0x72, 0x80),
+            Color.White);
+        _btnServicio.Click += (_, _) => GestionarServicio();
+
         _lblEstado = new Label
         {
             AutoSize = false,
@@ -108,11 +135,12 @@ public class AdminForm : Form
         topBar.Controls.Add(_btnDetener);
         topBar.Controls.Add(_btnConfWeb);
         topBar.Controls.Add(_btnCopyLogs);
+        topBar.Controls.Add(_btnServicio);
         topBar.Controls.Add(_lblEstado);
 
         // Posicionar botones a la izquierda
         int x = 16;
-        foreach (var btn in new[] { _btnIniciar, _btnDetener, _btnConfWeb, _btnCopyLogs })
+        foreach (var btn in new[] { _btnIniciar, _btnDetener, _btnConfWeb, _btnCopyLogs, _btnServicio })
         {
             btn.Location = new Point(x, 10);
             x += btn.Width + 10;
@@ -150,7 +178,17 @@ public class AdminForm : Form
         _sync.EstadoCambio += (_, _) => ActualizarEstado();
         _timerEstado.Tick += (_, _) => ActualizarEstado();
         _timerEstado.Start();
-        FormClosed += (_, _) => { _timerEstado.Stop(); _sync.Dispose(); };
+
+        // Cerrar ventana = minimizar a bandeja (no matar proceso)
+        FormClosing += (_, e) =>
+        {
+            if (e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                MinimizarABandeja();
+                return;
+            }
+        };
 
         ActualizarEstado();
         AgregarLog("RUTX · Launcher del sincronizador");
@@ -158,6 +196,8 @@ public class AdminForm : Form
             AgregarLog("Sincronizador detectado: " + _rutaExe);
         else
             AgregarLog("ADVERTENCIA: no se localizo Rutx.Sincronizador.exe");
+        if (_servicioInstalado)
+            AgregarLog("Servicio Windows detectado: " + ServiceHelper.ObtenerEstado());
         AgregarLog("Presiona ▶ Iniciar para arrancar la API (puerto 5047).");
     }
 
@@ -338,7 +378,21 @@ public class AdminForm : Form
         _btnIniciar.Enabled = !corriendo;
         _btnDetener.Enabled = corriendo;
         _lblEstado.ForeColor = corriendo ? VerdeInfo : Rojo;
-        _lblEstado.Text = corriendo ? "●  En ejecución · :5047" : "●  Detenido";
+        _lblEstado.Text = corriendo ? "●  En ejecucion · :5047" : "●  Detenido";
+
+        // Actualizar estado del servicio si esta instalado
+        if (_servicioInstalado)
+        {
+            var svcEstado = ServiceHelper.ObtenerEstado();
+            var corriendoSvc = svcEstado == System.ServiceProcess.ServiceControllerStatus.Running;
+            _btnIniciar.Enabled = !corriendo && !corriendoSvc;
+            _btnDetener.Enabled = corriendo || corriendoSvc;
+            if (corriendoSvc)
+            {
+                _lblEstado.ForeColor = VerdeInfo;
+                _lblEstado.Text = "●  Servicio activo · :5047";
+            }
+        }
     }
 
     private void AgregarLog(string linea)
@@ -367,6 +421,118 @@ public class AdminForm : Form
 
         if (_txtLogs.TextLength > 400_000)
             _txtLogs.Clear();
+    }
+
+    // ==================================================================
+    // BANDEJA Y SERVICIO
+    // ==================================================================
+
+    private void MinimizarABandeja()
+    {
+        Hide();
+        _trayIcon.Visible = true;
+        _trayIcon.ShowBalloonTip(2000, "RUTX Sincronizador", "El sincronizador sigue corriendo en segundo plano.", ToolTipIcon.Info);
+    }
+
+    private void MostrarVentana()
+    {
+        Show();
+        WindowState = FormWindowState.Normal;
+        _trayIcon.Visible = false;
+        Activate();
+    }
+
+    private void SalirDefinitivamente()
+    {
+        _timerEstado.Stop();
+        _trayIcon.Visible = false;
+        _trayIcon.Dispose();
+        _sync.Dispose();
+        Application.Exit();
+    }
+
+    private void EjecutarAccionServicio(string accion)
+    {
+        if (!ServiceHelper.Existe())
+        {
+            MostrarVentana();
+            AgregarLog("El servicio no esta instalado. Usa el boton 'Instalar servicio'.");
+            return;
+        }
+
+        Task.Run(() =>
+        {
+            var resultado = accion switch
+            {
+                "iniciar" => ServiceHelper.Iniciar(),
+                "detener" => ServiceHelper.Detener(),
+                _ => (false, "Accion desconocida")
+            };
+            return resultado;
+        }).ContinueWith(t =>
+        {
+            var (ok, msg) = t.Result;
+            AgregarLog(ok ? msg : $"ERROR: {msg}");
+            ActualizarEstado();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    private void GestionarServicio()
+    {
+        if (_servicioInstalado)
+        {
+            // Mostrar opciones del servicio
+            var resultado = MessageBox.Show(
+                "El servicio esta instalado.\n\n" +
+                "SI = Iniciar servicio\n" +
+                "NO = Detener servicio\n" +
+                "CANCEL = No hacer nada",
+                "RUTX · Gestionar servicio",
+                MessageBoxButtons.YesNoCancel,
+                MessageBoxIcon.Question);
+
+            if (resultado == DialogResult.Yes)
+                EjecutarAccionServicio("iniciar");
+            else if (resultado == DialogResult.No)
+                EjecutarAccionServicio("detener");
+        }
+        else
+        {
+            // Instalar servicio
+            if (string.IsNullOrEmpty(_rutaExe) || !System.IO.File.Exists(_rutaExe))
+            {
+                AgregarLog("ERROR: no se encontro Rutx.Sincronizador.exe. No se puede instalar el servicio.");
+                return;
+            }
+
+            var confirm = MessageBox.Show(
+                "Esto instalara el Sincronizador como servicio de Windows.\n\n" +
+                "- Arrancara automaticamente con Windows\n" +
+                "- No morira al cerrar sesion\n" +
+                "- Se reiniciara si falla\n\n" +
+                "Requiere permisos de administrador.\n\n" +
+                "¿Continuar?",
+                "RUTX · Instalar servicio",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (confirm != DialogResult.Yes) return;
+
+            AgregarLog("Instalando servicio Windows...");
+            Task.Run(() => ServiceHelper.Instalar(_rutaExe))
+                .ContinueWith(t =>
+                {
+                    var (ok, msg) = t.Result;
+                    AgregarLog(ok ? msg : $"ERROR: {msg}");
+                    if (ok)
+                    {
+                        _servicioInstalado = true;
+                        _btnServicio.Text = "🔧 Servicio ON";
+                        _btnServicio.BackColor = Color.FromArgb(0x16, 0x6B, 0x34);
+                    }
+                    ActualizarEstado();
+                }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
     }
 
     private static string NivelDe(string linea)

@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Software** | Sincronizador RUTX (.NET 10) |
-| **Versión** | 1.1 |
+| **Versión** | 1.2 |
 | **Fecha** | Agosto 2026 |
 | **Componentes** | `Rutx.Sincronizador.Admin.exe` (launcher) · `Rutx.Sincronizador.exe` (API como servicio Windows, puerto 5047) |
 
@@ -251,7 +251,7 @@ Al abrir `Rutx.Sincronizador.Admin.exe` se muestra la ventana principal:
 | **⏹ Detener** | Detiene la API (o detiene el servicio Windows) |
 | **⚙ Conf (web)** | Abre el panel web `http://localhost:5047/admin` (inicia la API si es necesario) |
 | **📋 Copy logs** | Copia los logs de la ventana al portapapeles |
-| **🔧 Instalar servicio** | Instala el Sincronizador como servicio de Windows (requiere admin) |
+| **🔧 Instalar servicio** | Instala el Sincronizador como servicio de Windows (pide permisos de administrador vía UAC, sección 4.1) |
 
 **Comportamiento de bandeja**: al cerrar la ventana (X), el launcher se minimiza
 a la bandeja del sistema (no mata el proceso). Para cerrar definitivamente,
@@ -261,6 +261,30 @@ haz clic derecho en el icono de bandeja → **Salir**.
 el sincronizador arranca automáticamente con Windows, sobrevive al cierre de
 sesión y se reinicia si falla. Puedes gestionarlo desde el launcher o con
 `sc query RutxSincronizador`.
+
+### 4.1 Instalar el servicio de Windows (requiere permisos de administrador)
+
+1. Haz clic en **🔧 Instalar servicio** y confirma en el diálogo *"¿Continuar?"*.
+2. Windows muestra el aviso de **Control de cuentas de usuario (UAC)** — el
+   clásico *"¿Quieres permitir que esta aplicación haga cambios en este
+   dispositivo?"* → haz clic en **Sí**.
+3. El launcher se relanza elevado, instala el servicio (`RutxSincronizador`) y
+   muestra *"El servicio se instaló correctamente."*. El botón cambia a
+   **🔧 Servicio ON**.
+
+> - Si el launcher ya corre **como administrador**, no aparece el aviso UAC y la
+>   instalación se hace directo.
+> - Si haces clic en **No** en el aviso de UAC (o el equipo no permite elevar la
+>   app), la instalación se cancela y el launcher te lo avisa: no queda el
+>   servicio a medias. Reintenta aceptando el aviso o ejecuta el launcher con
+>   clic derecho → **Ejecutar como administrador**.
+> - La cuenta de Windows debe tener **privilegios de administrador**.
+
+**Gestionar el servicio instalado** — con el botón **🔧 Servicio ON**:
+
+- **SI** = iniciar el servicio · **NO** = detenerlo · **CANCEL** = no hacer nada.
+- Iniciar o detener el servicio también requiere administrador: si el launcher
+  no está elevado, vuelve a aparecer el aviso UAC automáticamente.
 
 - **Estado**: `● En ejecución · :5047` / `● Servicio activo · :5047` / `● Detenido`.
 - **Logs**: verde = INFO · amarillo = WARN · rojo = ERROR.
@@ -332,6 +356,7 @@ Confirma que la instalación quedó operativa:
 | "Publicador desconocido" al ejecutar | Ejecutables sin firma digital | **Más información → Ejecutar de todas formas** |
 | El servicio no arranca al iniciar Windows | Servicio instalado pero en modo manual | Cambia a automático: `sc config RutxSincronizador start= delayed-auto` |
 | El servicio no se inicia | Firebird detenido, puerto 3050 bloqueado o permisos | Verifica el servicio Firebird y las credenciales en `appsettings.json` |
+| `OpenSCManager ERROR 5: Acceso denegado` al instalar el servicio | El launcher no tenía permisos de administrador | Con el aviso UAC el launcher se relanza elevado solo (sección 4.1). Si el error persiste, ejecuta el launcher con clic derecho → **Ejecutar como administrador** |
 | El panel `/admin` no carga | La API está detenida | Presiona **▶ Iniciar** o inicia el servicio |
 | `Could not find file: wwwroot\admin.html` | La API se arrancó desde una carpeta sin `wwwroot` | Arranca desde el launcher instalado |
 | Error de SQLite repetido (`SQLite Error 14`) | Falta la carpeta `Data\` | Arranca desde el launcher; borra `Data\cola_offline.db` si persiste |
@@ -382,7 +407,9 @@ cerrado cuando sea posible.
 
 1. En el launcher, presiona **⏹ Detener** (o **🔧 Servicio ON → Detener servicio**).
 2. Cierra el launcher (haz clic derecho en la bandeja → **Salir**).
-3. Si el servicio está instalado, desinstálalo: `sc delete RutxSincronizador`.
+3. Si el servicio está instalado, desinstálalo: `sc delete RutxSincronizador`
+   (requiere una consola **como administrador**: sin elevación, `sc delete` es
+   rechazado con *Acceso denegado*).
 4. Elimina la carpeta de instalación `C:\ProgramData\RUTX\Sincronizador`.
 5. Para restaurar una configuración anterior, el panel web guarda respaldos
    automáticos como `appsettings.json.bak`.

@@ -177,25 +177,42 @@ public class AuditoriaCompatibilidadService : IAuditoriaCompatibilidadService
     {
         try
         {
-            using var cmd = connection.CreateCommand();
-            // MON$DATABASE_VERSION existe desde Firebird 2.5; en 2.1 solo MON$DATABASE_NAME
+            // Detectar version via MON$ o RDB$GET_CONTEXT
+            string version = "desconocida";
             try
             {
-                cmd.CommandText = "SELECT MON$DATABASE_NAME, MON$DATABASE_VERSION FROM MON$DATABASE";
-                using var reader = cmd.ExecuteReader();
-                if (reader.Read())
-                    Report(resultado, "Conexion", "Conexion establecida", "ok",
-                        $"Firebird {reader.GetString(1)}");
-                else
-                    Report(resultado, "Conexion", "Conexion establecida", "ok", "Conexion establecida");
+                using var cmd = connection.CreateCommand();
+                // Intentar RDB$GET_CONTEXT (Firebird 3.0+, mas preciso)
+                try
+                {
+                    cmd.CommandText = "SELECT RDB$GET_CONTEXT('SYSTEM', 'ENGINE_VERSION') FROM RDB$DATABASE";
+                    var v = cmd.ExecuteScalar()?.ToString()?.Trim();
+                    if (!string.IsNullOrEmpty(v)) version = v;
+                }
+                catch
+                {
+                    // Fallback: MON$DATABASE_VERSION (Firebird 2.5+)
+                    try
+                    {
+                        cmd.CommandText = "SELECT MON$DATABASE_VERSION FROM MON$DATABASE";
+                        var v2 = cmd.ExecuteScalar()?.ToString()?.Trim();
+                        if (!string.IsNullOrEmpty(v2)) version = v2;
+                    }
+                    catch
+                    {
+                        // Firebird 2.1 o anterior: solo nombre
+                        cmd.CommandText = "SELECT MON$DATABASE_NAME FROM MON$DATABASE";
+                        var name = cmd.ExecuteScalar()?.ToString()?.Trim();
+                        if (!string.IsNullOrEmpty(name)) version = $"({name})";
+                    }
+                }
             }
-            catch
-            {
-                cmd.CommandText = "SELECT MON$DATABASE_NAME FROM MON$DATABASE";
-                var name = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "";
-                Report(resultado, "Conexion", "Conexion establecida", "ok",
-                    string.IsNullOrEmpty(name) ? "Conexion establecida" : $"Firebird ({name})");
-            }
+            catch { /* sin deteccion de version */ }
+
+            Report(resultado, "Conexion", "Conexion establecida", "ok",
+                string.IsNullOrEmpty(version) || version == "desconocida"
+                    ? "Conexion establecida"
+                    : $"Firebird {version}");
         }
         catch
         {

@@ -90,12 +90,14 @@ public static class FbConexionHelper
 
     /// <summary>
     /// Intenta abrir la conexion con la ruta y credenciales dadas.
+    /// Detecta la version de Firebird usando multiples estrategias.
     /// No deja la conexion abierta: se cierra (y descarta) siempre.
     /// </summary>
     public static bool ProbarConexion(string rutaFdb, string usuario, string password,
-        out string mensaje, int timeoutSegundos = 6)
+        out string mensaje, out FirebirdVersionInfo? versionInfo, int timeoutSegundos = 6)
     {
         mensaje = "";
+        versionInfo = null;
         if (!ArchivoFdbValido(rutaFdb, out var msjArchivo))
         {
             mensaje = msjArchivo;
@@ -110,7 +112,7 @@ public static class FbConexionHelper
             catch { /* servidor inaccesible */ }
             if (!tcp.Connected)
             {
-                mensaje = "No se pudo contactar al servidor Firebird (localhost:3050). Verifica que el servicio Firebird esté en ejecución.";
+                mensaje = "No se pudo contactar al servidor Firebird (localhost:3050). Verifica que el servicio Firebird este en ejecucion.";
                 return false;
             }
         }
@@ -118,28 +120,31 @@ public static class FbConexionHelper
         var cadena = ConstruirCadena(rutaFdb, usuario, password);
         // Aplicar el timeout a la conexion de prueba (por si Firebird no responde)
         cadena = cadena.Replace(";Dialect=3", $";Dialect=3;Connection Timeout={Math.Max(1, timeoutSegundos)}");
+
+        // Detectar version antes de cerrar la conexion
+        try
+        {
+            versionInfo = FirebirdVersionDetector.Detectar(rutaFdb, cadena);
+        }
+        catch { /* la deteccion de version no debe bloquear la conexion */ }
+
         try
         {
             using var conn = new FbConnection(cadena);
             conn.Open();
 
-            // Verificacion minima de lectura: nombre y version del motor.
-            // MON$DATABASE_VERSION existe desde Firebird 2.5; en versiones
-            // anteriores (2.1) solo esta MON$DATABASE_NAME.
-            using var cmd = conn.CreateCommand();
-            string version;
-            try
+            // Si no se detecto version via ODS, intentar via SQL
+            if (versionInfo == null || string.IsNullOrEmpty(versionInfo.Version))
             {
-                cmd.CommandText = "SELECT MON$DATABASE_VERSION FROM MON$DATABASE";
-                version = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "desconocida";
-            }
-            catch
-            {
-                cmd.CommandText = "SELECT MON$DATABASE_NAME FROM MON$DATABASE";
-                version = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "desconocida";
+                try
+                {
+                    versionInfo = FirebirdVersionDetector.Detectar(rutaFdb, cadena);
+                }
+                catch { /* fallback: sin version detectada */ }
             }
 
-            mensaje = $"Conexion OK (Firebird {version}).";
+            var versionStr = versionInfo?.ToString() ?? "Firebird (version no detectada)";
+            mensaje = $"Conexion OK — {versionStr}";
             return true;
         }
         catch (FbException ex)
@@ -151,7 +156,7 @@ public static class FbConexionHelper
         catch (Exception ex)
         {
             var limpio = ex.Message.Replace(password, "****").Replace(cadena, "[cadena]");
-            mensaje = "Fallo la conexión: " + limpio;
+            mensaje = "Fallo la conexion: " + limpio;
             return false;
         }
     }

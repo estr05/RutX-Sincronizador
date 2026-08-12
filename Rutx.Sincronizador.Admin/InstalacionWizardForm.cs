@@ -40,6 +40,7 @@ public class InstalacionWizardForm : Form
     private string _usuario = "SYSDBA";
     private string _password = "masterkey";
     private bool _conexionOk;
+    private FirebirdVersionInfo? _versionInfo;
     private bool _instalado;
     private bool _auditoriaOk;
     private int _nOk, _nAvisos, _nFallos;
@@ -593,8 +594,9 @@ public class InstalacionWizardForm : Form
             var tarea = Task.Run(() =>
             {
                 if (!FbConexionHelper.ArchivoFdbValido(_rutaFdb, out var msj))
-                    return (false, msj);
-                return (FbConexionHelper.ProbarConexion(_rutaFdb, usuario, password, out var m), m);
+                    return (false, msj, (FirebirdVersionInfo?)null);
+                var ok = FbConexionHelper.ProbarConexion(_rutaFdb, usuario, password, out var m, out var vInfo);
+                return (ok, m, vInfo);
             });
 
             // Timeout duro: si el cliente Firebird se cuelga, nunca dejamos al
@@ -602,15 +604,16 @@ public class InstalacionWizardForm : Form
             var completada = await Task.WhenAny(tarea, Task.Delay(TimeSpan.FromSeconds(15)));
             if (completada != tarea)
             {
-                _lblConexion.Text = "🔴 El servidor tardó demasiado en responder. Verifica que Firebird esté en ejecución y que la ruta de la BD sea correcta.";
+                _lblConexion.Text = "🔴 El servidor tardo demasiado en responder. Verifica que Firebird este en ejecucion y que la ruta de la BD sea correcta.";
                 _lblConexion.ForeColor = Rojo;
                 _btnSiguiente.Enabled = false;
                 return;
             }
 
-            var (ok, mensaje) = await tarea;
+            var (ok, mensaje, vInfo) = await tarea;
 
             _conexionOk = ok;
+            _versionInfo = vInfo;
             if (ok)
             {
                 // IMPORTANTE: guardar las credenciales que SÍ conectaron para

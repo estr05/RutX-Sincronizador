@@ -88,11 +88,19 @@ builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ??
 // Logging a archivo (ademas de consola en dev)
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
-builder.Logging.AddEventLog(settings =>
+// EventLog solo existe en Windows; en Linux no hay y lanzaria
+// PlatformNotSupportedException al arrancar. El guard condicional
+// se valida con OperatingSystem.IsWindows() (por eso el pragma).
+if (OperatingSystem.IsWindows())
 {
-    settings.SourceName = "RutxSincronizador";
-    settings.LogName = "Sincronizador";
-});
+#pragma warning disable CA1416
+    builder.Logging.AddEventLog(settings =>
+    {
+        settings.SourceName = "RutxSincronizador";
+        settings.LogName = "Sincronizador";
+    });
+#pragma warning restore CA1416
+}
 builder.Logging.AddProvider(new FileLoggerProvider(logsDir));
 
 // --- Fallback dinámico para la ruta de la base de datos Firebird ---

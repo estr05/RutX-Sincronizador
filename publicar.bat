@@ -25,20 +25,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist publicacion mkdir publicacion
+if not exist Sincronizador mkdir Sincronizador
 
 echo   [1/2] Publicando Rutx.Sincronizador.exe ...
-dotnet publish Rutx.Sincronizador.csproj -c Release %EXTRA% -o publicacion
+dotnet publish Rutx.Sincronizador.csproj -c Release %EXTRA% -o Sincronizador
 if errorlevel 1 goto :error
 
 echo   [2/2] Publicando Rutx.Sincronizador.Admin.exe ...
-dotnet publish Rutx.Sincronizador.Admin\Rutx.Sincronizador.Admin.csproj -c Release %EXTRA% -o publicacion
+dotnet publish Rutx.Sincronizador.Admin\Rutx.Sincronizador.Admin.csproj -c Release %EXTRA% -o Sincronizador
 if errorlevel 1 goto :error
 
 echo.
 echo ============================================================
 echo   LISTO. Tus ejecutables estan en:
-echo     %~dp0publicacion
+echo     %~dp0Sincronizador
 echo ============================================================
 echo     - Rutx.Sincronizador.exe
 echo     - Rutx.Sincronizador.Admin.exe

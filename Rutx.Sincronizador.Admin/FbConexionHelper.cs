@@ -121,27 +121,22 @@ public static class FbConexionHelper
         // Aplicar el timeout a la conexion de prueba (por si Firebird no responde)
         cadena = cadena.Replace(";Dialect=3", $";Dialect=3;Connection Timeout={Math.Max(1, timeoutSegundos)}");
 
-        // Detectar version antes de cerrar la conexion
-        try
-        {
-            versionInfo = FirebirdVersionDetector.Detectar(rutaFdb, cadena);
-        }
-        catch { /* la deteccion de version no debe bloquear la conexion */ }
+        // Detectar la version por ODS del header .fdb (sin conexion, nunca bloquea
+        // y funciona con cualquier version, aunque las credenciales aun no conecten).
+        versionInfo = FirebirdVersionDetector.Detectar(rutaFdb);
 
         try
         {
             using var conn = new FbConnection(cadena);
             conn.Open();
 
-            // Si no se detecto version via ODS, intentar via SQL
-            if (versionInfo == null || string.IsNullOrEmpty(versionInfo.Version))
+            // Ya conectado con credenciales validas: afinar la version via SQL
+            // reutilizando la conexion abierta (sin abrir una segunda conexion).
+            try
             {
-                try
-                {
-                    versionInfo = FirebirdVersionDetector.Detectar(rutaFdb, cadena);
-                }
-                catch { /* fallback: sin version detectada */ }
+                FirebirdVersionDetector.DetectarVersionSql(conn, versionInfo);
             }
+            catch { /* la deteccion SQL no debe romper la prueba de conexion */ }
 
             var versionStr = versionInfo?.ToString() ?? "Firebird (version no detectada)";
             mensaje = $"Conexion OK — {versionStr}";
@@ -150,13 +145,13 @@ public static class FbConexionHelper
         catch (FbException ex)
         {
             var limpio = ex.Message.Replace(password, "****").Replace(cadena, "[cadena]");
-            mensaje = ClasificarError(limpio, ex.ErrorCode);
+            mensaje = ClasificarError(limpio, ex.ErrorCode, versionInfo);
             return false;
         }
         catch (Exception ex)
         {
             var limpio = ex.Message.Replace(password, "****").Replace(cadena, "[cadena]");
-            mensaje = "Fallo la conexion: " + limpio;
+            mensaje = ClasificarError(limpio, 0, versionInfo);
             return false;
         }
     }
@@ -164,9 +159,10 @@ public static class FbConexionHelper
     /// <summary>
     /// Convierte el error crudo del cliente Firebird en un mensaje claro para
     /// el instalador: distingue credenciales incorrectas, servidor caido,
-    /// BD no abrible y problemas de la base de seguridad.
+    /// BD no abrible, ODS no soportado por el servidor y problemas de la base
+    /// de seguridad.
     /// </summary>
-    private static string ClasificarError(string limpio, int errorCode)
+    private static string ClasificarError(string limpio, int errorCode, FirebirdVersionInfo? versionInfo)
     {
         var m = limpio;
 
@@ -185,19 +181,59 @@ public static class FbConexionHelper
             m.Contains("network request to host", StringComparison.OrdinalIgnoreCase))
             return "No se pudo contactar al servidor Firebird (localhost:3050). Verifica que el servicio Firebird esté en ejecución.";
 
-        // 3) BD no abrible (ruta o permisos)
+        // 3) ODS de la BD mas nuevo que el que soporta el servidor local.
+        //    Ej: "unsupported on-disk structure for file ...; found 13.1, support 12.2"
+        //    -> la BD es de Firebird 5.0 y el servidor local es Firebird 3.0.
+        if (m.Contains("unsupported on-disk structure", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("wrong ods version", StringComparison.OrdinalIgnoreCase) ||
+            m.Contains("wrong on-disk structure", StringComparison.OrdinalIgnoreCase))
+            return MensajeOdsNoSoportado(m, versionInfo);
+
+        // 4) BD no abrible (ruta o permisos)
         if (m.Contains("unable to open database", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("database not found", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("file not found", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("no se pudo abrir", StringComparison.OrdinalIgnoreCase))
             return "La base de datos no se pudo abrir: verifica la ruta del archivo .fdb y sus permisos.";
 
-        // 4) Base de seguridad
+        // 5) Base de seguridad
         if (m.Contains("password database", StringComparison.OrdinalIgnoreCase) ||
             m.Contains("cannot attach", StringComparison.OrdinalIgnoreCase))
             return "Firebird rechazó la conexión (base de seguridad). Verifica el usuario con el administrador.";
 
-        // 5) Generico
+        // 6) Generico
         return "Fallo la conexión: " + limpio;
+    }
+
+    /// <summary>
+    /// Explica un error de ODS no soportado usando la version detectada de la
+    /// BD (por el header del .fdb) y los numeros "found/support" del mensaje.
+    /// </summary>
+    private static string MensajeOdsNoSoportado(string mensajeCrudo, FirebirdVersionInfo? versionInfo)
+    {
+        // El mensaje trae algo como: "...; found 13.1, support 12.2"
+        var found = System.Text.RegularExpressions.Regex.Match(mensajeCrudo,
+            @"found\s+(\d+)[.,](\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var support = System.Text.RegularExpressions.Regex.Match(mensajeCrudo,
+            @"support\s+(\d+)[.,](\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Version de la BD: prioridad a la detectada por el header del .fdb
+        string bd;
+        if (versionInfo is { Ods: > 0 } v)
+            bd = $"{v.Nombre} (ODS {v.Ods}.{v.OdsMinor})";
+        else if (found.Success)
+            bd = FirebirdVersionDetector.NombreFirebirdDeOds(
+                int.Parse(found.Groups[1].Value), int.Parse(found.Groups[2].Value));
+        else
+            bd = "más nueva que la que soporta el servidor local";
+
+        string servidor = support.Success
+            ? FirebirdVersionDetector.NombreFirebirdDeOds(
+                int.Parse(support.Groups[1].Value), int.Parse(support.Groups[2].Value))
+            : "una versión más antigua";
+
+        return "La base de datos no se puede abrir con el servidor Firebird local (localhost:3050): "
+             + $"la BD es {bd} y el servidor soporta a lo mucho {servidor}. "
+             + "Actualiza el servidor Firebird de esta PC a la misma versión (o superior) con la que se creó la BD.";
     }
 }

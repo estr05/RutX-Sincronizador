@@ -601,7 +601,8 @@ public class InstalacionWizardForm : Form
 
             // Timeout duro: si el cliente Firebird se cuelga, nunca dejamos al
             // usuario sin respuesta — siempre se muestra un mensaje claro.
-            var completada = await Task.WhenAny(tarea, Task.Delay(TimeSpan.FromSeconds(15)));
+            // 25s: da margen a Firebird 2.x/1.x y a BDs grandes en PCs lentos.
+            var completada = await Task.WhenAny(tarea, Task.Delay(TimeSpan.FromSeconds(25)));
             if (completada != tarea)
             {
                 _lblConexion.Text = "🔴 El servidor tardo demasiado en responder. Verifica que Firebird este en ejecucion y que la ruta de la BD sea correcta.";
@@ -734,6 +735,11 @@ public class InstalacionWizardForm : Form
             _spinnerInstalar.Girar(false);
             _spinnerInstalar.Visible = false;
             _lblEstadoInstalacion.Visible = false;
+
+            // Si la instalacion ya quedo hecha, siempre permitir avanzar aunque la
+            // auditoria en vivo falle o el arranque del sync lance una excepcion:
+            // los ejecutables YA estan copiados y la config YA se genero.
+            _btnSiguiente.Enabled = _instalado;
         }
     }
 

@@ -222,14 +222,14 @@ Flujo diario en la ventana del launcher:
 
 ```bash
 # Publicar ambos proyectos (el launcher + el sync) en la misma carpeta
-mkdir publicacion
+mkdir Sincronizador
 # 1) El sincronizador (API + panel web /admin)
-dotnet publish Rutx.Sincronizador.csproj -c Release -o publicacion
+dotnet publish Rutx.Sincronizador.csproj -c Release -o Sincronizador
 # 2) El launcher WinForms (debe quedar JUNTO al exe del sync)
-dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -o publicacion
+dotnet publish Rutx.Sincronizador.Admin/Rutx.Sincronizador.Admin.csproj -c Release -o Sincronizador
 
 # Resultado:
-# publicacion/
+# Sincronizador/
 # ├── Rutx.Sincronizador.exe        ← API (lo controla el launcher)
 # ├── Rutx.Sincronizador.Admin.exe  ← Launcher: doble clic y listo
 # ├── appsettings.json              ← config editable desde el panel web

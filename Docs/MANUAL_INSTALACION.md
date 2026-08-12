@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Software** | Sincronizador RUTX (.NET 10) |
-| **Versión** | 1.0 |
+| **Versión** | 1.1 |
 | **Fecha** | Agosto 2026 |
 | **Componentes** | `Rutx.Sincronizador.Admin.exe` (launcher) · `Rutx.Sincronizador.exe` (API como servicio Windows, puerto 5047) |
 
@@ -22,7 +22,7 @@ instalados.
 Máquina de desarrollo                PC del cliente
 ┌─────────────────────────┐   USB   ┌──────────────────────────────┐
 │ git clone + publish     │ ──────► │ Copiar carpeta al disco      │
-│ → carpeta "publicacion" │         │ Ejecutar Admin.exe → asistente│
+│ → carpeta "Sincronizador" │      │ Ejecutar Admin.exe → asistente│
 └─────────────────────────┘         └──────────────────────────────┘
 ```
 
@@ -56,7 +56,7 @@ Máquina de desarrollo                PC del cliente
 |---|---|
 | Sistema operativo | Windows 10 u 11 (64 bits) |
 | .NET Runtime 10 | **No necesario**: el paquete que se lleva al cliente (*self-contained*, sección 2.2) ya lo incluye |
-| Servidor Firebird | En ejecución en `localhost:3050`, con la base de Microsip (`.fdb`) |
+| Servidor Firebird | En ejecución en `localhost:3050`, con la base de Microsip (`.fdb`). **Recomendado: Firebird 2.5 o superior** (versiones soportadas: sección 1, *Versiones de Firebird soportadas*) |
 | Credenciales Firebird | Por defecto `SYSDBA` / `masterkey`; ten las reales a la mano |
 | Puerto 5047 | Libre (lo usa la API del Sincronizador) |
 | Red | La app móvil debe alcanzar esta PC por la red local en `IP:5047` |
@@ -65,6 +65,38 @@ Máquina de desarrollo                PC del cliente
 > catálogos (cajas, formas de cobro, etc.) están en caché: los cambios en la
 > base de datos no se verán hasta reiniciar Microsip. Si es posible, instala
 > con Microsip cerrado.
+
+### Versiones de Firebird soportadas
+
+El asistente detecta la versión de Firebird de la BD elegida en **dos niveles**:
+
+1. **Por el header del archivo `.fdb`** — sin conexión y con cualquier versión:
+   lee el *On-Disk Structure* (ODS) directamente del archivo e identifica la
+   **familia** (ej. "Firebird 3.0"). Funciona incluso si las credenciales aún
+   no conectan.
+2. **Por SQL** — una vez que la conexión es válida, obtiene la **versión exacta**
+   del motor (ej. "3.0.14") vía `RDB$GET_CONTEXT('SYSTEM','ENGINE_VERSION')`
+   (disponible en Firebird 2.1+), con respaldo en las tablas de monitoreo MON$
+   (`MON$ODS_MAJOR` / `MON$ODS_MINOR`).
+
+| Firebird | ODS | Soporte |
+|---|---|---|
+| 5.0 | 13.1 | ✅ Soportado |
+| 4.0 | 13.0 | ✅ Soportado |
+| 3.0 | 12.0 | ✅ Soportado (recomendado) |
+| 2.5 | 11.2 | ✅ Soportado |
+| 2.1 | 11.1 | ⚠️ Detectable por ODS, pero el driver incluido (FirebirdClient 10.x) soporta oficialmente 2.5+; conviene actualizar |
+| 2.0 | 11.0 | ⚠️ Muy antiguo; el driver incluido ya no lo soporta |
+| 1.5 / 1.0 | 10.x | ❌ No soportado (muy antiguo para la app móvil) |
+
+> - En el **paso 2** del asistente, el mensaje 🟢 **Conexión OK** muestra la
+>   versión detectada, ej. `Conexión OK — Firebird 3.0 (ODS 12.0) — 3.0.14`.
+> - Si la BD es de **Firebird 1.5/2.0**, se muestra la familia por ODS
+>   (`Firebird 1.5 (ODS 10.1) — version desconocida`): esas versiones no tienen
+>   la función SQL que entrega la versión exacta. Es esperado.
+> - Que el asistente **detecte** la versión (por ODS) no garantiza que el driver
+>   pueda **conectar** con ella: el driver incluido soporta oficialmente
+>   **Firebird 2.5 en adelante**.
 
 ---
 
@@ -88,14 +120,14 @@ la PC del cliente no tendrá .NET instalado, por eso esta versión incluye
 
 1. En el Explorador, entra a la carpeta `RutX-Sincronizador` (la que clonaste).
 2. Haz **doble clic** en `publicar_selfcontained.bat`.
-3. Espera a que termine: verás la carpeta `publicacion` con los dos `.exe`.
+3. Espera a que termine: verás la carpeta `Sincronizador` con los dos `.exe`.
 
 > **[Captura de pantalla: el archivo publicar_selfcontained.bat dentro de la carpeta y su ventana al terminar]**
 
-Resultado esperado — la carpeta `publicacion` debe contener:
+Resultado esperado — la carpeta `Sincronizador` debe contener:
 
 ```
-publicacion/
+Sincronizador/
 ├── Rutx.Sincronizador.exe        ← API (el Sincronizador)
 ├── Rutx.Sincronizador.Admin.exe  ← Launcher (uso diario)
 ├── appsettings.json              ← Configuración (plantilla; se regenera al instalar)
@@ -119,7 +151,7 @@ publicacion/
 
 ## 3. Instalar en la PC del cliente (desde USB)
 
-1. Copia la carpeta `publicacion` (≈150 MB, la versión self-contained
+1. Copia la carpeta `Sincronizador` (≈150 MB, la versión self-contained
 generada con `publicar_selfcontained.bat`) a un **USB**.
 2. En la PC del cliente, **copia la carpeta del USB al disco local**
    (ej. `C:\Sincronizador`). Así el uso diario no dependerá del USB.
@@ -169,6 +201,12 @@ proceso en 4 pasos:
 > El asistente guarda en la configuración **las credenciales que sí conectaron**,
 > no los valores por defecto. Cada cliente puede tener su propia BD y
 > credenciales: el proceso es el mismo.
+
+> 🟢 **Conexión OK** muestra también **la versión de Firebird detectada**, ej.
+> `Conexión OK — Firebird 3.0 (ODS 12.0) — 3.0.14`. Se detecta primero por el
+> header del archivo `.fdb` (funciona sin conexión y con cualquier versión) y se
+> afina por SQL cuando la conexión es válida. Ver *Versiones de Firebird
+> soportadas* en la sección 1.
 
 ### Paso 3 — Instalar y auditar
 
@@ -300,6 +338,10 @@ Confirma que la instalación quedó operativa:
 | La auditoría marca IDs faltantes | IDs por defecto que no existen en la BD | Reasigna los `Default*Id` desde el panel web (sección 5.1) |
 | La app móvil no conecta a la API | IP/puerto incorrectos, red o firewall | Verifica `IP:5047`, misma red que los vendedores, puerto abierto |
 | La conexión a la BD falla | Firebird detenido, puerto 3050 o credenciales | Confirma el servicio Firebird y las credenciales reales |
+| El asistente muestra `Firebird (ODS X.Y) — version desconocida` | BD de Firebird 1.5/2.0: esas versiones no tienen la función SQL de la versión exacta | Es esperado: la familia se identifica por el ODS del archivo (sección 1). Considera actualizar Firebird |
+| El asistente avisa que la versión de Firebird es muy antigua | Firebird 2.0/2.1/2.5 (sin soporte oficial del motor) | Funciona, pero conviene actualizar a 3.0+ (sección 1) |
+| El asistente detecta la versión pero no conecta (🔴) | El driver incluido soporta oficialmente Firebird 2.5+; en 2.1 o inferior la conexión puede fallar | Actualiza el servidor Firebird a 2.5 o superior (sección 1) |
+| El asistente muestra `unsupported on-disk structure ... found X.Y, support A.B` | La BD es de una versión de Firebird **más nueva que el servidor local** (ej. BD Firebird 5.0 con un servidor Firebird 3.0 en esta PC) | Instala en la PC el servidor Firebird de la **misma versión (o superior)** con la que se creó la BD (sección 1) |
 | Microsip no muestra los tickets | La caja abierta no coincide | Verifica acceso del cajero a la caja correcta (sección 8) |
 
 ---
@@ -364,7 +406,7 @@ como si fuera la del cliente:
 
 1. Prepara el paquete (sección 2): doble clic en `publicar_selfcontained.bat`
    (la misma versión que llevarías a un cliente real).
-2. Copia la carpeta `publicacion` a una carpeta limpia de prueba
+2. Copia la carpeta `Sincronizador` a una carpeta limpia de prueba
    (ej. `C:\PruebaCliente\`) — simula el USB y el disco del cliente.
 3. Ejecuta `C:\PruebaCliente\Rutx.Sincronizador.Admin.exe`.
    El asistente se abre (no existe `instalacion.json` y el sync está junto al

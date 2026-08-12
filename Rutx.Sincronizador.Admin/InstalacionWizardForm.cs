@@ -194,6 +194,18 @@ public class InstalacionWizardForm : Form
         footer.Controls.Add(_btnSiguiente);
         footer.Controls.Add(_btnFinalizar);
 
+        // Posicionar los botones del pie: Atras a la izquierda, Siguiente/Finalizar
+        // a la derecha, respetando el padding (22, 10, 22, 10) y el ancho del boton
+        // (140). Sin esto, los tres quedan apilados en (0,0) y se tapan entre si
+        // (en el paso 2, "Atras" ocultaba al boton "Siguiente").
+        footer.Layout += (_, _) =>
+        {
+            _btnAtras.Location = new Point(22, 11);
+            int xDerecha = footer.ClientSize.Width - 22 - 140;
+            _btnSiguiente.Location = new Point(xDerecha, 11);
+            _btnFinalizar.Location = new Point(xDerecha, 11);
+        };
+
         // ===================== Ensamblar =====================
         Controls.Add(contenido);
         Controls.Add(footer);

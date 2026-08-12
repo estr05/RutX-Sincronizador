@@ -1,10 +1,19 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.IdentityModel.Tokens;
 using Rutx.Sincronizador.Data;
 using Rutx.Sincronizador.Middleware;
 using Rutx.Sincronizador.Services;
 using System.Text;
 using System.Text.Json.Serialization;
+// ----------------------------------------------------------------
+// ContentRoot fijo: siempre el directorio del exe.
+// Cuando se ejecuta como servicio (SCM) o tarea programada, el
+// WorkingDirectory no es la carpeta del exe; fijarlo aqui garantiza
+// que appsettings.json, wwwroot y Data se resuelvan correctamente.
+// ----------------------------------------------------------------
+var exeDir = AppContext.BaseDirectory;
+Directory.SetCurrentDirectory(exeDir);
 
 // ----------------------------------------------------------------
 // Single-instance lock portable (archivo bloqueado en %TEMP%).
@@ -39,7 +48,7 @@ for (int intento = 0; intento < 2; intento++)
             }
         }
         Console.Error.WriteLine("[ERROR] Ya hay una instancia del Sincronizador ejecutandose.");
-        Console.Error.WriteLine("       Cierra la terminal anterior con Ctrl+C y vuelve a intentar.");
+        Console.Error.WriteLine("       Si es el servicio, usa el launcher para gestionarlo.");
         return;
     }
 }
@@ -55,8 +64,36 @@ Console.CancelKeyPress += (_, _) =>
 };
 // ----------------------------------------------------------------
 
+// ----------------------------------------------------------------
+// Logging a archivo: indispensable cuando corre como servicio
+// (no hay consola). Logs en Logs/sincronizador.log (rotacion diaria).
+// ----------------------------------------------------------------
+var logsDir = Path.Combine(exeDir, "Logs");
+Directory.CreateDirectory(logsDir);
+
 var builder = WebApplication.CreateBuilder(args);
+
+// ContentRoot = directorio del exe (no depende de WorkingDirectory)
+builder.Environment.ContentRootPath = exeDir;
+
+// Windows Service: detecta automaticamente si corre como servicio.
+// En modo consola (desarrollo) funciona igual, sin cambios.
+builder.Host.UseWindowsService(options =>
+{
+    options.ServiceName = "RutxSincronizador";
+});
+
 builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://0.0.0.0:5047");
+
+// Logging a archivo (ademas de consola en dev)
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddEventLog(settings =>
+{
+    settings.SourceName = "RutxSincronizador";
+    settings.LogName = "Sincronizador";
+});
+builder.Logging.AddProvider(new FileLoggerProvider(logsDir));
 
 // --- Fallback dinámico para la ruta de la base de datos Firebird ---
 var connectionString = builder.Configuration.GetConnectionString("FirebirdConnection");

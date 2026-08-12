@@ -34,14 +34,18 @@ public class SqlErrorClassifierTest
     }
 
     [Fact]
-    public void ViolacionNotNull_PorValidationError_SeClasifica()
+    public void ViolacionNotNull_PorValidationError_SeClasificaComoCheck()
     {
+        // SQLCODE -286 es una violacion de dominio/CHECK (valor invalido), NO
+        // un NULL en columna NOT NULL (que da "cannot insert NULL into").
+        // Antes se clasificaba como ViolacionNotNull (falso positivo); ahora
+        // se clasifica como ViolacionCheck.
         var ex = new Exception(
             "SQL error code = -286\nvalidation error for column NOMBRE, value *** null");
 
         var info = SqlErrorClassifier.Clasificar(ex);
 
-        Assert.Equal(SqlErrorTipo.ViolacionNotNull, info.Tipo);
+        Assert.Equal(SqlErrorTipo.ViolacionCheck, info.Tipo);
         Assert.Equal(-286, info.SqlCode);
     }
 

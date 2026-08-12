@@ -13,6 +13,13 @@ public interface IColaOfflineRepository
     Task<int> ContarPorEstadoAsync(EstadoOperacion estado);
     Task<ColaOperacion?> ObtenerPorIdempotenciaAsync(TipoOperacion tipo, string idempotencia);
 
+    /// <summary>
+    /// Heartbeat: refresca FechaModificacion de una operacion en PROCESANDO
+    /// para que ObtenerPendientesAsync no la libere como "colgada" mientras
+    /// todavia se esta procesando (procesamiento lento + retries).
+    /// </summary>
+    Task TocarHeartbeatAsync(string operacionId);
+
     /// <summary>Registros de idempotencia de ventas (evita duplicados en reintentos).</summary>
     Task<VentaSincronizada?> ObtenerVentaSincronizadaAsync(string ventaMovilId);
 

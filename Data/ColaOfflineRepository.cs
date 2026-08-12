@@ -144,6 +144,22 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
     {
         return await EjecutarAsync(async conn =>
         {
+            // Operaciones PROCESANDO "colgadas": si el proceso murio a mitad del
+            // procesamiento, el estado quedo en PROCESANDO para siempre y nunca
+            // se reintentaba. Se liberan (vuelven a PENDIENTE) tras un umbral
+            // de inactividad, mismo criterio que VentasSincronizadas (2 min).
+            var liberar = conn.CreateCommand();
+            liberar.CommandText = @"
+                UPDATE ColaOperaciones
+                SET Estado = 'PENDIENTE',
+                    SiguienteReintento = @Ahora,
+                    FechaModificacion = @Ahora
+                WHERE Estado = 'PROCESANDO'
+                  AND FechaModificacion <= @UmbralColgado";
+            liberar.Parameters.AddWithValue("@Ahora", DateTime.UtcNow.ToString("O"));
+            liberar.Parameters.AddWithValue("@UmbralColgado", DateTime.UtcNow.AddMinutes(-2).ToString("O"));
+            await liberar.ExecuteNonQueryAsync();
+
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
                 SELECT * FROM ColaOperaciones
@@ -205,6 +221,21 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
             cmd.Parameters.AddWithValue("@ErrorUltimoIntento", operacion.ErrorUltimoIntento ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@FechaModificacion", operacion.FechaModificacion.ToString("O"));
 
+            await cmd.ExecuteNonQueryAsync();
+        });
+    }
+
+    public async Task TocarHeartbeatAsync(string operacionId)
+    {
+        await EjecutarAsync(async conn =>
+        {
+            var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE ColaOperaciones
+                SET FechaModificacion = @Ahora
+                WHERE OperacionId = @OperacionId AND Estado = 'PROCESANDO'";
+            cmd.Parameters.AddWithValue("@OperacionId", operacionId);
+            cmd.Parameters.AddWithValue("@Ahora", DateTime.UtcNow.ToString("O"));
             await cmd.ExecuteNonQueryAsync();
         });
     }

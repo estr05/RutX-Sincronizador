@@ -656,6 +656,7 @@
 'use strict';
 
 let configActual = null;
+let auditoriaSecuencia = 0; // descarta respuestas de auditorias anteriores (race condition)
 
 /* ---------- Helpers de JSON por ruta ---------- */
 function getPath(obj, path) {
@@ -900,12 +901,17 @@ function renderAuditoria(data) {
 // Re-evaluacion AUTOMATICA al abrir el panel: corre la auditoria en vivo
 // (POST /api/v2/admin/auditoria) y pinta los puntitos. El endpoint es
 // 100% solo lectura contra la BD de Microsip.
+// Guard de secuencia: si el usuario guarda/recarga mientras una auditoria
+// sigue corriendo, la respuesta vieja se descarta y no pinta resultados
+// obsoletos sobre la configuracion nueva.
 async function cargarAuditoria() {
+  const secuencia = ++auditoriaSecuencia;
   const estado = document.getElementById('audit-estado');
   estado.textContent = '⏳ Re-evaluando…';
   estado.style.color = 'var(--text-muted)';
   try {
     const res = await fetch('/api/v2/admin/auditoria', { method: 'POST' });
+    if (secuencia !== auditoriaSecuencia) return; // ya hay una mas reciente
     if (!res.ok) {
       const err = await res.json().catch(() => null);
       estado.textContent = '🔴 No se pudo auditar: ' + (err?.detalle || 'HTTP ' + res.status);
@@ -914,6 +920,7 @@ async function cargarAuditoria() {
     }
     renderAuditoria(await res.json());
   } catch (e) {
+    if (secuencia !== auditoriaSecuencia) return;
     estado.textContent = '🔴 Error de conexión al auditar: ' + e.message;
     estado.style.color = 'var(--red)';
   }
@@ -1054,6 +1061,13 @@ function pintarEstadoCampo(campo, item) {
 /* ---------- Buscador de IDs (consultas predefinidas) ---------- */
 let buscadorContexto = null;
 
+// Escapa texto antes de insertarlo via innerHTML (evita XSS con datos de la BD)
+function escaparHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
 function abrirBuscador(catalogo, titulo, onSelect) {
   buscadorContexto = { catalogo, onSelect };
   document.getElementById('modal-titulo').textContent = '🔍 ' + titulo;
@@ -1079,7 +1093,7 @@ async function ejecutarBusqueda() {
     const res = await fetch('/api/v2/admin/catalogos/' + ctx.catalogo + '?q=' + encodeURIComponent(q) + '&limite=50', { cache: 'no-store' });
     if (!res.ok) { box.innerHTML = '<div class="modal-empty">Error: HTTP ' + res.status + '</div>'; return; }
     const filas = await res.json();
-    if (!filas.length) { box.innerHTML = '<div class="modal-empty">Sin resultados para «' + (q || 'el catálogo') + '»</div>'; return; }
+    if (!filas.length) { box.innerHTML = '<div class="modal-empty">Sin resultados para «' + escaparHtml(q || 'el catálogo') + '»</div>'; return; }
     box.innerHTML = '';
     filas.forEach(f => {
       const row = document.createElement('div');
@@ -1105,7 +1119,7 @@ async function ejecutarBusqueda() {
       box.appendChild(row);
     });
   } catch (e) {
-    box.innerHTML = '<div class="modal-empty">Error de conexión: ' + e.message + '</div>';
+    box.innerHTML = '<div class="modal-empty">Error de conexión: ' + escaparHtml(e.message) + '</div>';
   }
 }
 

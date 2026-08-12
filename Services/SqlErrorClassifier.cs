@@ -177,8 +177,9 @@ public static class SqlErrorClassifier
         }
 
         // ---- 5. NOT NULL ----
-        if (gdsCodes.Contains(GdsNotNull) || Contiene(texto, "cannot insert NULL into", "NULL assignment to NOT NULL column",
-                "validation error for column"))
+        // Nota: "validation error for column" NO es NOT NULL: es una violacion
+        // de CHECK/dominio (valor invalido), por eso vive en el bloque CHECK.
+        if (gdsCodes.Contains(GdsNotNull) || Contiene(texto, "cannot insert NULL into", "NULL assignment to NOT NULL column"))
         {
             var col = RxColumnaNotNull.Match(texto).Groups[1].Value;
             info.Columna = string.IsNullOrEmpty(col) ? null : col.Trim();
@@ -189,14 +190,29 @@ public static class SqlErrorClassifier
         }
 
         // ---- 6. CHECK ----
-        if (Contiene(texto, "violation of CHECK constraint", "invalid field value in CHECK constraint"))
+        // "validation error for column X, value Y cannot be validated" es el
+        // mensaje de una violacion de CHECK/dominio (valor fuera de la regla),
+        // no de una columna vacia. Ya no puede llegar aqui con GdsNotNull
+        // porque el bloque 5 lo habria capturado antes.
+        if (Contiene(texto,
+                "violation of CHECK constraint", "invalid field value in CHECK constraint",
+                "validation error for column"))
         {
             var m = RxConstraint.Match(texto);
             var c = m.Success ? m.Groups[1].Value : string.Empty;
             info.Constraint = string.IsNullOrEmpty(c) ? null : c;
+
+            // Sub-caso: "value *** null" es un NULL rechazado por un dominio
+            // con CHECK (NOT NULL via dominio). El mensaje debe hablar de valor
+            // vacio, no de "tipo de documento", para no confundir al usuario.
+            var esNullViaDominio = Contiene(texto, "value *** null");
             return Fijar(info, SqlErrorTipo.ViolacionCheck,
-                $"El valor enviado no cumple una regla de la base de datos (constraint " +
-                $"\"{info.Constraint ?? "?"}\"). Verifica el tipo de documento, estatus y demas valores del registro.",
+                esNullViaDominio
+                    ? $"La operacion intenta guardar un valor vacio en un campo que el dominio de la " +
+                      $"base de datos no admite (constraint \"{info.Constraint ?? "?"}\"). Revisa que la " +
+                      $"informacion enviada desde la app este completa."
+                    : $"El valor enviado no cumple una regla de la base de datos (constraint " +
+                      $"\"{info.Constraint ?? "?"}\"). Verifica el tipo de documento, estatus y demas valores del registro.",
                 reintentable: false);
         }
 

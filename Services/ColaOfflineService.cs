@@ -73,6 +73,14 @@ public class ColaOfflineService : IColaOfflineService
         operacion.Estado = EstadoOperacion.PROCESANDO;
         await _repository.ActualizarAsync(operacion);
 
+        // Heartbeat: mientras el procesamiento corre, refresca FechaModificacion
+        // cada 20 s para que ObtenerPendientesAsync NO libere esta operacion como
+        // "colgada" si tarda mas de 2 min (Firebird lento + retries con backoff).
+        // Sin esto, el proceso en curso se reprocesaria en paralelo y se podria
+        // duplicar la venta/cobro con un folio distinto.
+        using var cts = new CancellationTokenSource();
+        var heartbeat = HeartbeatAsync(operacion.OperacionId, cts.Token);
+
         try
         {
             switch (operacion.TipoOperacion)
@@ -114,6 +122,36 @@ public class ColaOfflineService : IColaOfflineService
             }
 
             await _repository.ActualizarAsync(operacion);
+        }
+        finally
+        {
+            cts.Cancel();
+            try { await heartbeat; } catch { /* el heartbeat se detiene con la cancelacion */ }
+        }
+    }
+
+    /// <summary>
+    /// Toca el heartbeat de una operacion en PROCESANDO cada 20 s.
+    /// Mantiene FechaModificacion fresca para que la liberacion de "colgadas"
+    /// (umbral 2 min) nunca afecte a una operacion que sigue viva.
+    /// </summary>
+    private async Task HeartbeatAsync(string operacionId, CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(20), token);
+                await _repository.TocarHeartbeatAsync(operacionId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // cancelacion normal al terminar el procesamiento
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Heartbeat fallo para la operación {OperacionId} (se ignora)", operacionId);
         }
     }
 

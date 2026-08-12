@@ -186,7 +186,11 @@ public static class FirebirdVersionDetector
     ///   Offset 16-17: hdr_page_size (2 bytes, little-endian)
     ///   Offset 18-19: hdr_ods_version (2 bytes, little-endian)
     ///                 = ODS major AND 0x8000 (flag Firebird)
-    ///   Offset 20-21: hdr_ods_minor (2 bytes, little-endian)
+    ///
+    /// El ODS minor NO esta en un offset fijo:
+    ///   - ODS <= 12 (Firebird 1.x a 3.0): offset 64
+    ///   - ODS 13+  (Firebird 4.0 en adelante): offset 20
+    /// (el layout del header cambio en ODS 13).
     ///
     /// Devuelve (major, minor) o (0, 0) si no es un header valido.
     /// </summary>
@@ -196,10 +200,10 @@ public static class FirebirdVersionDetector
             return (0, 0);
 
         using var fs = new FileStream(rutaFdb, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        if (fs.Length < 22)
+        if (fs.Length < 66)
             return (0, 0);
 
-        var header = new byte[22];
+        var header = new byte[66];
         fs.ReadExactly(header);
 
         // Validar page_type = 0x01 (header page)
@@ -211,8 +215,10 @@ public static class FirebirdVersionDetector
         ushort odsRaw = (ushort)(header[18] | (header[19] << 8));
         int odsMajor = odsRaw & 0x7FFF;  // quitar el flag Firebird
 
-        // ODS minor: bytes 20-21, little-endian
-        int odsMinor = header[20] | (header[21] << 8);
+        // ODS minor: offset 20 (ODS 13+) u offset 64 (ODS <= 12)
+        int odsMinor = odsMajor >= 13
+            ? (header[20] | (header[21] << 8))
+            : (header[64] | (header[65] << 8));
 
         return (odsMajor, odsMinor);
     }

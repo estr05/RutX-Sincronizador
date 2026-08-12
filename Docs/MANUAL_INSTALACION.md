@@ -395,6 +395,34 @@ revisarla antes de que falle la primera venta.
 matutina (clientes, productos, caja) reutilizando la lógica de la app móvil,
 sin requerir token.
 
+### 5.4 Cola offline (reintentos)
+
+Cuando la app móvil no tiene conexión, las operaciones (ventas, clientes) se
+encolan en SQLite (`Data/cola_offline.db`) y el servidor las procesa en cuanto
+puede. Configurable desde el panel:
+
+| Campo | Qué hace |
+|---|---|
+| `IntervaloProcesoSegundos` | Cada cuántos segundos el fondo revisa la cola (default 5) |
+| `MaxIntentos` | Reintentos máximos por operación (default 5) |
+| `BaseDelaySegundos` / `MaxDelaySegundos` | Backoff exponencial entre reintentos (1 → 30 s) |
+| `RutaSqlite` | Ubicación del archivo de cola |
+
+Comportamiento importante (para no perder datos):
+
+- **Proceso muerto a mitad**: si el sincronizador se cae mientras procesaba una
+  operación, esta queda en estado `PROCESANDO`. Pasados **2 minutos** de
+  inactividad se libera sola y vuelve a la cola de reintentos — no se pierde.
+- **Heartbeat anti-duplicados**: mientras una operación se está procesando, el
+  servidor renueva su marca de tiempo cada 20 s. Así una operación *en curso*
+  (aunque tarde más de 2 min por una BD lenta o reintentos de `deadlock`)
+  **nunca** se reprocesa en paralelo, evitando ventas duplicadas con folio
+  distinto.
+- **Irreparables**: tras `MaxIntentos` fallidos la operación queda en estado
+  `FALLIDO` y deja de reintentarse (puede revisarse en la BD SQLite).
+
+> Ver `Docs/DISENO_COLA_OFFLINE.md` para el diseño completo.
+
 ---
 
 ## 6. Verificación posterior a la instalación
@@ -431,6 +459,8 @@ Confirma que la instalación quedó operativa:
 | Error de campo vacío (`NOT NULL`) al insertar | La app envió un dato incompleto | El mensaje indica la columna. Revisa la información enviada desde la app |
 | Error `Valor duplicado` | Ya existe el folio/llave (otro proceso lo creó) | El sincronizador concilia en el siguiente intento; si persiste, revisa folios de la caja (sección 8) |
 | Error de `deadlock` / base ocupada | Microsip está escribiendo en la misma tabla en ese momento | Es transitorio: la operación se reintenta sola (respuesta `reintentable: true`) |
+| Una operación de la cola offline no se procesa | Quedó en `PROCESANDO` y el proceso murió a mitad | Se libera sola pasados 2 min de inactividad (sección 5.4); revisa el log del servicio si persiste |
+| Una operación de la cola offline falla siempre (estado `FALLIDO`) | Payload irreparable (datos inválidos, FK rota) | Tras `MaxIntentos` (default 5) se marca `FALLIDO` y deja de reintentarse (sección 5.4) |
 | Los errores de la API ahora incluyen `categoria` y `reintentable` | Comportamiento nuevo: los errores SQL se clasifican con mensaje accionable | La app y el panel pueden mostrar el mensaje `mensaje` directamente; `categoria` indica el tipo (llave foránea, conexión, ODS…) |
 | El asistente muestra `Firebird (ODS X.Y) — version desconocida` | BD de Firebird 1.5/2.0: esas versiones no tienen la función SQL de la versión exacta | Es esperado: la familia se identifica por el ODS del archivo (sección 1). Considera actualizar Firebird |
 | El asistente avisa que la versión de Firebird es muy antigua | Firebird 2.0/2.1/2.5 (sin soporte oficial del motor) | Funciona, pero conviene actualizar a 3.0+ (sección 1) |

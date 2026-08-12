@@ -469,7 +469,7 @@ public class AdminForm : Form
         Application.Exit();
     }
 
-    private void EjecutarAccionServicio(string accion)
+    private async void EjecutarAccionServicio(string accion)
     {
         if (!ServiceHelper.Existe())
         {
@@ -478,24 +478,34 @@ public class AdminForm : Form
             return;
         }
 
-        Task.Run(() =>
+        // Iniciar/detener un servicio de Windows requiere permisos de
+        // administrador; si no los tenemos, relanzar elevado (UAC).
+        if (!UacHelper.EsAdministrador())
         {
-            var resultado = accion switch
+            var arg = accion == "iniciar" ? "--iniciar-servicio" : "--detener-servicio";
+            AgregarLog($"Solicitando permisos de administrador para {accion} el servicio...");
+            using var proc = UacHelper.RelanzarComoAdministrador(arg);
+            if (proc == null)
             {
-                "iniciar" => ServiceHelper.Iniciar(),
-                "detener" => ServiceHelper.Detener(),
-                _ => (false, "Accion desconocida")
-            };
-            return resultado;
-        }).ContinueWith(t =>
-        {
-            var (ok, msg) = t.Result;
-            AgregarLog(ok ? msg : $"ERROR: {msg}");
+                AgregarLog($"ERROR: se cancelo la solicitud de permisos de administrador. No se {accion switch { "iniciar" => "inicio", _ => "detuvo" }} el servicio.");
+                return;
+            }
+            await proc.WaitForExitAsync();
             ActualizarEstado();
-        }, TaskScheduler.FromCurrentSynchronizationContext());
+            return;
+        }
+
+        var (ok, msg) = accion switch
+        {
+            "iniciar" => await Task.Run(() => ServiceHelper.Iniciar()),
+            "detener" => await Task.Run(() => ServiceHelper.Detener()),
+            _ => (false, "Accion desconocida")
+        };
+        AgregarLog(ok ? msg : $"ERROR: {msg}");
+        ActualizarEstado();
     }
 
-    private void GestionarServicio()
+    private async void GestionarServicio()
     {
         if (_servicioInstalado)
         {
@@ -537,19 +547,67 @@ public class AdminForm : Form
             if (confirm != DialogResult.Yes) return;
 
             AgregarLog("Instalando servicio Windows...");
-            Task.Run(() => ServiceHelper.Instalar(_rutaExe))
-                .ContinueWith(t =>
+            _btnServicio.Enabled = false; // evitar doble clic mientras se instala
+            try
+            {
+                // Instalar un servicio requiere administrador. Sin elevacion,
+                // sc.exe falla con "OpenSCManager ERROR 5: Acceso denegado"; por
+                // eso, si no somos administradores, relanzamos la app elevada con
+                // el prompt de UAC y ahi se realiza la instalacion.
+                if (!UacHelper.EsAdministrador())
                 {
-                    var (ok, msg) = t.Result;
-                    AgregarLog(ok ? msg : $"ERROR: {msg}");
-                    if (ok)
+                    AgregarLog("Solicitando permisos de administrador...");
+                    using var proc = UacHelper.RelanzarComoAdministrador(
+                        $"--instalar-servicio \"{_rutaExe}\"");
+                    if (proc == null)
                     {
-                        _servicioInstalado = true;
+                        AgregarLog("ERROR: no se pudieron obtener permisos de administrador. No se instalo el servicio.");
+                        MessageBox.Show(
+                            "Para instalar el servicio se necesitan permisos de administrador.\n\n" +
+                            "Ejecuta el launcher como administrador o vuelve a intentarlo aceptando el aviso \"¿Quieres permitir que esta aplicación haga cambios en este dispositivo?\".",
+                            "RUTX · Instalar servicio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    // Esperar a que el proceso elevado termine (ahi se muestra el
+                    // resultado) y refrescar el estado.
+                    await proc.WaitForExitAsync();
+                    _servicioInstalado = ServiceHelper.Existe();
+                    if (_servicioInstalado)
+                    {
                         _btnServicio.Text = "🔧 Servicio ON";
                         _btnServicio.BackColor = Color.FromArgb(0x16, 0x6B, 0x34);
+                        AgregarLog("Servicio instalado correctamente.");
+                    }
+                    else
+                    {
+                        AgregarLog("ERROR: el proceso elevado no logro instalar el servicio (revisa el mensaje que se mostro).");
                     }
                     ActualizarEstado();
-                }, TaskScheduler.FromCurrentSynchronizationContext());
+                    return;
+                }
+
+                // Ya somos administrador: instalar en este proceso
+                var (ok, msg) = await Task.Run(() => ServiceHelper.Instalar(_rutaExe));
+                AgregarLog(ok ? msg : $"ERROR: {msg}");
+                if (ok)
+                {
+                    _servicioInstalado = true;
+                    _btnServicio.Text = "🔧 Servicio ON";
+                    _btnServicio.BackColor = Color.FromArgb(0x16, 0x6B, 0x34);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        $"No se pudo instalar el servicio.\n\n{msg}",
+                        "RUTX · Instalar servicio", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                ActualizarEstado();
+            }
+            finally
+            {
+                _btnServicio.Enabled = true;
+            }
         }
     }
 

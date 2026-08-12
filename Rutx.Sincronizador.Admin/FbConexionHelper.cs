@@ -123,10 +123,21 @@ public static class FbConexionHelper
             using var conn = new FbConnection(cadena);
             conn.Open();
 
-            // Verificacion minima de lectura: version del motor (SELECT a MON$DATABASE)
+            // Verificacion minima de lectura: nombre y version del motor.
+            // MON$DATABASE_VERSION existe desde Firebird 2.5; en versiones
+            // anteriores (2.1) solo esta MON$DATABASE_NAME.
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT MON$DATABASE_VERSION FROM MON$DATABASE";
-            var version = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "desconocida";
+            string version;
+            try
+            {
+                cmd.CommandText = "SELECT MON$DATABASE_VERSION FROM MON$DATABASE";
+                version = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "desconocida";
+            }
+            catch
+            {
+                cmd.CommandText = "SELECT MON$DATABASE_NAME FROM MON$DATABASE";
+                version = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "desconocida";
+            }
 
             mensaje = $"Conexion OK (Firebird {version}).";
             return true;

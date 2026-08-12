@@ -178,13 +178,24 @@ public class AuditoriaCompatibilidadService : IAuditoriaCompatibilidadService
         try
         {
             using var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT MON$DATABASE_NAME, MON$DATABASE_VERSION FROM MON$DATABASE";
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            // MON$DATABASE_VERSION existe desde Firebird 2.5; en 2.1 solo MON$DATABASE_NAME
+            try
+            {
+                cmd.CommandText = "SELECT MON$DATABASE_NAME, MON$DATABASE_VERSION FROM MON$DATABASE";
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                    Report(resultado, "Conexion", "Conexion establecida", "ok",
+                        $"Firebird {reader.GetString(1)}");
+                else
+                    Report(resultado, "Conexion", "Conexion establecida", "ok", "Conexion establecida");
+            }
+            catch
+            {
+                cmd.CommandText = "SELECT MON$DATABASE_NAME FROM MON$DATABASE";
+                var name = cmd.ExecuteScalar()?.ToString()?.Trim() ?? "";
                 Report(resultado, "Conexion", "Conexion establecida", "ok",
-                    $"Firebird {reader.GetString(1)}");
-            else
-                Report(resultado, "Conexion", "Conexion establecida", "ok", "Conexion establecida");
+                    string.IsNullOrEmpty(name) ? "Conexion establecida" : $"Firebird ({name})");
+            }
         }
         catch
         {

@@ -37,6 +37,7 @@ public class AdminForm : Form
     private readonly System.Windows.Forms.Timer _timerCopy = new() { Interval = 1500 };
     private string _rutaExe;
     private bool _servicioInstalado;
+    private int _finBotones; // x donde terminan los botones de la barra superior
 
     public AdminForm()
     {
@@ -58,7 +59,7 @@ public class AdminForm : Form
 
         Text = "RUTX · Sincronizador";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(820, 520);
+        MinimumSize = new Size(880, 520);
         Size = new Size(960, 620);
         BackColor = Fondo;
         Font = new Font("Figtree", 10F, FontStyle.Regular);
@@ -118,17 +119,17 @@ public class AdminForm : Form
             _servicioInstalado ? "🔧 Servicio ON" : "🔧 Instalar servicio",
             _servicioInstalado ? Color.FromArgb(0x16, 0x6B, 0x34) : Color.FromArgb(0x6B, 0x72, 0x80),
             Color.White);
+        _btnServicio.Size = new Size(170, 40); // "🔧 Instalar servicio" no cabia en 132px
         _btnServicio.Click += (_, _) => GestionarServicio();
 
         _lblEstado = new Label
         {
             AutoSize = false,
-            Size = new Size(240, 40),
+            AutoEllipsis = true,
             TextAlign = ContentAlignment.MiddleRight,
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             ForeColor = Rojo,
-            Text = "●  Detenido",
-            Anchor = AnchorStyles.Top | AnchorStyles.Right
+            Text = "●  Detenido"
         };
 
         topBar.Controls.Add(_btnIniciar);
@@ -139,15 +140,20 @@ public class AdminForm : Form
         topBar.Controls.Add(_lblEstado);
 
         // Posicionar botones a la izquierda
-        int x = 16;
+        int x = 14;
         foreach (var btn in new[] { _btnIniciar, _btnDetener, _btnConfWeb, _btnCopyLogs, _btnServicio })
         {
             btn.Location = new Point(x, 10);
-            x += btn.Width + 10;
+            x += btn.Width + 8;
         }
-        _lblEstado.Location = new Point(topBar.ClientSize.Width - _lblEstado.Width - 16, 10);
-        topBar.Resize += (_, _) =>
-            _lblEstado.Location = new Point(topBar.ClientSize.Width - _lblEstado.Width - 16, 10);
+        _finBotones = x;
+
+        // El label de estado vive SIEMPRE a la derecha de los botones, ocupando
+        // el espacio sobrante (se recorta con "…" si no alcanza). Antes quedaba
+        // anclado al borde derecho y en ventanas estrechas se encimaba con los
+        // botones 'Copy logs' y 'Servicio'.
+        PosicionarEstado(topBar);
+        topBar.Resize += (_, _) => PosicionarEstado(topBar);
 
         // ===== Logs al centro (consola) =====
         _txtLogs = new RichTextBox
@@ -270,11 +276,23 @@ public class AdminForm : Form
             ForeColor = frente,
             FlatStyle = FlatStyle.Flat,
             FlatAppearance = { BorderSize = 0 },
-            Size = new Size(132, 40),
+            Size = new Size(124, 40),
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             Cursor = Cursors.Hand,
             UseVisualStyleBackColor = false
         };
+    }
+
+    /// <summary>
+    /// Ubica el label de estado en el espacio libre entre los botones y el borde
+    /// derecho de la barra. Nunca se superpone a los botones: si el espacio no
+    /// alcanza, AutoEllipsis recorta el texto con "…".
+    /// </summary>
+    private void PosicionarEstado(Panel barra)
+    {
+        int izquierda = _finBotones + 12;
+        int ancho = barra.ClientSize.Width - izquierda - 16;
+        _lblEstado.SetBounds(izquierda, 10, Math.Max(ancho, 1), 40);
     }
 
     private void IniciarSync()
@@ -378,7 +396,7 @@ public class AdminForm : Form
         _btnIniciar.Enabled = !corriendo;
         _btnDetener.Enabled = corriendo;
         _lblEstado.ForeColor = corriendo ? VerdeInfo : Rojo;
-        _lblEstado.Text = corriendo ? "●  En ejecucion · :5047" : "●  Detenido";
+        _lblEstado.Text = corriendo ? "●  En ejecución" : "●  Detenido";
 
         // Actualizar estado del servicio si esta instalado
         if (_servicioInstalado)
@@ -390,7 +408,7 @@ public class AdminForm : Form
             if (corriendoSvc)
             {
                 _lblEstado.ForeColor = VerdeInfo;
-                _lblEstado.Text = "●  Servicio activo · :5047";
+                _lblEstado.Text = "●  Servicio activo";
             }
         }
     }

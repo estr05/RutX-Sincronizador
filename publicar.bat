@@ -36,6 +36,10 @@ dotnet publish Rutx.Sincronizador.Admin\Rutx.Sincronizador.Admin.csproj -c Relea
 if errorlevel 1 goto :error
 
 echo.
+echo   Limpiando archivos de depuracion (*.pdb) del paquete...
+del /q "Sincronizador\*.pdb" >nul 2>nul
+
+echo.
 echo ============================================================
 echo   LISTO. Tus ejecutables estan en:
 echo     %~dp0Sincronizador

@@ -54,6 +54,7 @@ public class InstalacionWizardForm : Form
 
     // Paso 1 (se asignan en CrearPanel* llamado desde el constructor)
     private TextBox _txtRaiz = null!;
+    private Label _lblEstructura = null!;
     // Paso 2
     private TextBox _txtFdb = null!;
     private TextBox _txtUsuario = null!;
@@ -82,7 +83,7 @@ public class InstalacionWizardForm : Form
 
         Text = "RUTX · Instalación del Sincronizador";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(760, 560);
+        MinimumSize = new Size(780, 620);
         Size = new Size(860, 620);
         BackColor = Fondo;
         Font = new Font("Figtree", 10F, FontStyle.Regular);
@@ -130,12 +131,13 @@ public class InstalacionWizardForm : Form
             {
                 Text = $"{(i + 1)}. {nombresPasos[i]}",
                 AutoSize = false,
-                Size = new Size(150, 34),
+                Size = new Size(175, 34),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Figtree", 9.5F, FontStyle.Bold),
                 ForeColor = TextoMuted,
                 BackColor = Fondo,
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                AutoEllipsis = true // "3. Instalar y auditar" no se corta
             };
             lbl.Paint += (_, e) =>
             {
@@ -143,7 +145,7 @@ public class InstalacionWizardForm : Form
                 e.Graphics.DrawRectangle(pen, 0, 0, lbl.Width - 1, lbl.Height - 1);
             };
             lbl.Location = new Point(x, 6);
-            x += 160;
+            x += 178;
             pasoBar.Controls.Add(lbl);
             _pasosIndicador[i] = lbl;
         }
@@ -254,20 +256,17 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(btnExaminar);
 
         p.Controls.Add(Lbl("Estructura que se creará:", 155));
-        var estructura = new Label
+        _lblEstructura = new Label
         {
             Location = new Point(0, 178),
             AutoSize = true,
+            MaximumSize = new Size(760, 0),
             Font = new Font("Cascadia Code", 9F),
-            ForeColor = TextoMuted,
-            Text = "└─ {raiz}\\"
-                 + "\n    ├─ Ejecutables\\     → Rutx.Sincronizador.exe + DLLs"
-                 + "\n    ├─ wwwroot\\        → panel /admin"
-                 + "\n    ├─ appsettings.json → BD, usuario, password, IDs"
-                 + "\n    ├─ Data\\           → cola offline (SQLite)"
-                 + "\n    ├─ Logs\\           → bitácora"
-                 + "\n    └─ instalacion.json → marcador que usa el launcher"
+            ForeColor = TextoMuted
         };
+        ActualizarEstructura();
+        _txtRaiz.TextChanged += (_, _) => ActualizarEstructura();
+        p.Controls.Add(_lblEstructura);
 
         var nota = new Label
         {
@@ -280,9 +279,23 @@ public class InstalacionWizardForm : Form
                  + "sin depender de dónde se haya clonado el repo."
         };
 
-        p.Controls.Add(estructura);
         p.Controls.Add(nota);
         return p;
+    }
+
+    private void ActualizarEstructura()
+    {
+        var raiz = _txtRaiz.Text.Trim();
+        if (string.IsNullOrWhiteSpace(raiz))
+            raiz = InstalacionHelper.RutaDefault;
+        _lblEstructura.Text = "Destino: " + raiz + "\\"
+            + "\n└─ Estructura que se creará:"
+            + "\n    ├─ Ejecutables\\     → Rutx.Sincronizador.exe + DLLs"
+            + "\n    ├─ wwwroot\\        → panel /admin"
+            + "\n    ├─ appsettings.json → BD, usuario, password, IDs"
+            + "\n    ├─ Data\\           → cola offline (SQLite)"
+            + "\n    ├─ Logs\\           → bitácora"
+            + "\n    └─ instalacion.json → marcador que usa el launcher";
     }
 
     private Panel CrearPanelBd()
@@ -390,16 +403,19 @@ public class InstalacionWizardForm : Form
         };
         p.Controls.Add(_lblConexion);
 
-        var nota = new Label
+        // Nota de credenciales: va JUNTO al botón "Probar conexión" para estar
+        // siempre visible. Antes estaba en y=400, debajo del panel de contenido,
+        // y quedaba oculta detrás del pie (invisible).
+        p.Controls.Add(new Label
         {
-            Location = new Point(0, 400),
+            Location = new Point(184, 304),
             AutoSize = true,
+            MaximumSize = new Size(520, 0),
             Font = new Font("Figtree", 9F, FontStyle.Regular),
             ForeColor = TextoMuted,
-            Text = "Por defecto se intenta con SYSDBA / masterkey. Si tu Firebird usa otra\n"
+            Text = "Por defecto se intenta con SYSDBA / masterkey. Si tu Firebird usa otra "
                  + "contraseña, escríbela aquí y presiona \"Probar conexión\"."
-        };
-        p.Controls.Add(nota);
+        });
         return p;
     }
 
@@ -455,7 +471,7 @@ public class InstalacionWizardForm : Form
         _txtProgreso = new RichTextBox
         {
             Location = new Point(0, 200),
-            Size = new Size(770, 270),
+            Size = new Size(770, 180),
             BackColor = ConsolaFondo,
             ForeColor = ConsolaTexto,
             BorderStyle = BorderStyle.None,
@@ -465,6 +481,15 @@ public class InstalacionWizardForm : Form
             DetectUrls = false
         };
         p.Controls.Add(_txtProgreso);
+
+        // La consola ocupa todo el espacio restante del panel y se reajusta al
+        // redimensionar. Antes tenia altura fija (270) que se salia del panel y
+        // su parte inferior quedaba tapada por el pie.
+        p.Layout += (_, _) =>
+        {
+            var alto = Math.Max(120, p.ClientSize.Height - 204);
+            _txtProgreso.SetBounds(0, 200, Math.Max(p.ClientSize.Width, 300), alto);
+        };
         return p;
     }
 

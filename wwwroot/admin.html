@@ -296,6 +296,13 @@
   .id-status.err  { color: var(--red); }
   .id-status.warn { color: var(--amber); }
   .id-status.pend { color: var(--text-muted); }
+  .bd-version {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .chip-id {
     display: inline-flex; align-items: center;
     font-size: 12px; font-weight: 600;
@@ -403,14 +410,48 @@
     <div class="card-body">
       <div class="grid">
         <div class="field full">
-          <label>Cadena Firebird (BD del ERP)</label>
-          <input type="text" id="cfg.ConnectionStrings.FirebirdConnection" data-cfg="ConnectionStrings.FirebirdConnection" placeholder="User=SYSDBA;Password=…;Database=C:\…\MI_BD.fdb;DataSource=localhost;Port=3050;…">
+          <label>Base de datos Firebird (ruta del .fdb)</label>
+          <input type="text" id="conn-database" readonly title="Solo lectura por ahora">
+        </div>
+        <div class="field">
+          <label>Servidor (host)</label>
+          <input type="text" id="conn-datasource" readonly>
+        </div>
+        <div class="field">
+          <label>Puerto</label>
+          <input type="number" id="conn-port" readonly>
+        </div>
+        <div class="field">
+          <label>Usuario</label>
+          <input type="text" id="conn-user" readonly>
+        </div>
+        <div class="field">
+          <label>Contraseña</label>
+          <input type="password" id="conn-password" readonly>
+        </div>
+        <div class="field">
+          <label>Dialecto</label>
+          <input type="number" id="conn-dialect" readonly>
+        </div>
+        <div class="field">
+          <label>Charset</label>
+          <input type="text" id="conn-charset" readonly>
+        </div>
+        <div class="field">
+          <label>Pooling</label>
+          <input type="text" id="conn-pooling" readonly>
+        </div>
+        <div class="field">
+          <label>Timeout conexión (s)</label>
+          <input type="number" id="conn-timeout" readonly>
         </div>
         <div class="field full">
           <label>Cadena SQLite (cola offline)</label>
           <input type="text" id="cfg.ConnectionStrings.SQLiteConnection" data-cfg="ConnectionStrings.SQLiteConnection" placeholder="Data Source=Data\cola_offline.db">
         </div>
       </div>
+      <div class="bd-version" id="bd-version"><span class="chip-id">⏳ Detectando versión de la BD…</span></div>
+      <p class="field-note">Campos de solo lectura por ahora (la cadena se conserva intacta en appsettings.json). Charset, puerto y timeout muestran los valores efectivos: si no vienen en la cadena, son los por defecto del driver (UTF8 · 3050 · 15 s).</p>
     </div>
   </section>
 
@@ -709,6 +750,12 @@ async function guardarConfig() {
     setPath(nuevo, inp.dataset.cfgCheck, inp.checked);
   });
 
+  // La cadena Firebird es de solo lectura por ahora: se conserva la del archivo.
+  // (Sin esto, al no haber input data-cfg para ella, se guardaria vacia y romperia el arranque.)
+  if (configActual.ConnectionStrings && configActual.ConnectionStrings.FirebirdConnection) {
+    nuevo.ConnectionStrings.FirebirdConnection = configActual.ConnectionStrings.FirebirdConnection;
+  }
+
   // Formas de cobro a credito: lista de IDs separados por coma
   const creditInp = document.getElementById('cfg-credit-formas');
   const creditIds = (creditInp?.value || '')
@@ -728,6 +775,7 @@ async function guardarConfig() {
     if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
     toast('✔ Configuración guardada (respaldo .bak creado)');
     cargarConfig();
+    cargarConexion();
     cargarIdsCriticos();
     cargarAuditoria();
   } catch (e) {
@@ -871,6 +919,33 @@ async function cargarAuditoria() {
   }
 }
 
+/* ---------- Conexion Firebird: campos estructurados (solo lectura) ---------- */
+async function cargarConexion() {
+  try {
+    const res = await fetch('/api/v2/admin/conexion', { cache: 'no-store' });
+    const data = await res.json();
+    const campos = data.campos || {};
+    const mapeo = {
+      'conn-database': campos.database,
+      'conn-datasource': campos.data_source,
+      'conn-port': campos.port,
+      'conn-user': campos.user,
+      'conn-password': campos.password,
+      'conn-dialect': campos.dialect,
+      'conn-charset': campos.charset,
+      'conn-pooling': campos.pooling,
+      'conn-timeout': campos.connection_timeout
+    };
+    Object.entries(mapeo).forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = (val === undefined || val === null || val === '') ? '' : String(val);
+    });
+    if (data.error) toast('⚠ ' + data.error, 'err');
+  } catch (e) {
+    toast('No se pudieron cargar los datos de conexión: ' + e.message, 'err');
+  }
+}
+
 /* ---------- Validacion de IDs criticos (por campo) ---------- */
 async function cargarIdsCriticos() {
   const todos = document.querySelectorAll('[data-campo-id] .id-status, [data-campo-array] .id-status');
@@ -878,6 +953,25 @@ async function cargarIdsCriticos() {
   try {
     const res = await fetch('/api/v2/admin/ids-criticos', { cache: 'no-store' });
     const data = await res.json();
+
+    // Badge de version de la BD (leida del header .fdb, funciona aunque el
+    // servidor local no pueda abrir la BD, ej. FB 5.0 con servidor FB 3.0)
+    const bv = document.getElementById('bd-version');
+    if (bv) {
+      const bdNom = (data.bd || '').split(/[\\/]/).pop() || 'BD configurada';
+      let texto = '🗄️ ' + bdNom;
+      if (data.version_firebird) {
+        texto += ' · ' + data.version_firebird + ' (ODS ' + data.ods_major + '.' + data.ods_minor + ')';
+      } else if (data.conexion_ok) {
+        texto += ' · versión no detectable';
+      }
+      if (!data.conexion_ok && data.error) texto += ' · ⚠ ' + data.error;
+      const chip = document.createElement('span');
+      chip.className = 'chip-id ' + (data.conexion_ok ? 'chip-ok' : 'chip-err');
+      chip.textContent = texto;
+      bv.innerHTML = '';
+      bv.appendChild(chip);
+    }
 
     if (!data.conexion_ok) {
       document.querySelectorAll('[data-campo-id], [data-campo-array]').forEach(c => {
@@ -923,6 +1017,14 @@ async function cargarIdsCriticos() {
       el.className = 'id-status err';
       el.textContent = '✗ Error validando: ' + e.message;
     });
+    const bv = document.getElementById('bd-version');
+    if (bv) {
+      const chip = document.createElement('span');
+      chip.className = 'chip-id chip-err';
+      chip.textContent = '🗄️ Error detectando versión: ' + e.message;
+      bv.innerHTML = '';
+      bv.appendChild(chip);
+    }
   }
 }
 
@@ -1010,7 +1112,7 @@ async function ejecutarBusqueda() {
 /* ---------- Bindings ---------- */
 document.getElementById('btn-guardar').addEventListener('click', guardarConfig);
 document.getElementById('btn-sync').addEventListener('click', syncMatutino);
-document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarVendedores(); cargarIdsCriticos(); cargarAuditoria(); });
+document.getElementById('btn-recargar').addEventListener('click', () => { cargarConfig(); cargarConexion(); cargarVendedores(); cargarIdsCriticos(); cargarAuditoria(); });
 
 // Buscador de IDs: un clic en 🔍 abre el catalogo correspondiente
 // y al elegir un resultado lo escribe en el campo (se re-valida al guardar).
@@ -1044,6 +1146,7 @@ document.getElementById('modal-buscador').addEventListener('click', e => { if (e
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cerrarBuscador(); });
 
 cargarConfig();
+cargarConexion();
 cargarVendedores();
 cargarIdsCriticos();
 chequearApi();

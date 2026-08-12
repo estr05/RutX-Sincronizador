@@ -117,6 +117,53 @@ public class AuditoriaCompatibilidadService : IAuditoriaCompatibilidadService
         ["MOVTOS_EFVO_CAJA"] = Array.Empty<string>(),
     };
 
+    // ------------------------------------------------------------------
+    // COLUMNAS QUE LOS INSERTS DEL SINCRONIZADOR ESCRIBEN EXPLICITAMENTE
+    // (union de los INSERT INTO de VentaServicePv, CobranzaService,
+    //  ClienteService y FolioService). Se usan en la auditoria NOT NULL:
+    // una columna NOT NULL sin default efectivo que NO este aqui haria
+    // fallar los INSERTs (violation NOT NULL).
+    // NOTA: las columnas completadas por triggers BEFINS (los IDs con -1)
+    // tambien van aqui porque el sync las escribe como -1; el trigger las
+    // reemplaza por el valor generado.
+    // ------------------------------------------------------------------
+    private static readonly Dictionary<string, string[]> ColumnasEscritasPorSync = new()
+    {
+        ["CLIENTES"] = new[] { "CLIENTE_ID", "NOMBRE", "SUJETO_IEPS", "DIFERIR_CFDI_COBROS",
+                                "LIMITE_CREDITO", "MONEDA_ID", "COND_PAGO_ID" },
+        ["DOCTOS_PV"] = new[] { "DOCTO_PV_ID", "CAJA_ID", "TIPO_DOCTO", "SUCURSAL_ID", "FOLIO",
+                                 "FECHA", "HORA", "CAJERO_ID", "CLIENTE_ID", "DIR_CLI_ID",
+                                 "ALMACEN_ID", "MONEDA_ID", "IMPUESTO_INCLUIDO", "TIPO_CAMBIO",
+                                 "ESTATUS", "APLICADO", "PROCESO_ORIGEN", "SISTEMA_ORIGEN", "VENDEDOR_ID",
+                                 "IMPORTE_NETO", "TOTAL_IMPUESTOS", "TOTAL_RETENCIONES",
+                                 "PESO_EMBARQUE", "DESCRIPCION", "ES_CFD", "ENVIADO",
+                                 "CFDI_CERTIFICADO", "CARGAR_SUN", "USUARIO_CREADOR",
+                                 "FECHA_HORA_CREACION", "PARTIDA_AJUSTE_ID", "PRECIO_ORIG_PARTIDA_AJUSTE" },
+        ["DOCTOS_PV_DET"] = new[] { "DOCTO_PV_DET_ID", "DOCTO_PV_ID", "ARTICULO_ID", "UNIDADES",
+                                     "PRECIO_UNITARIO", "PRECIO_UNITARIO_IMPTO", "IMPUESTO_POR_UNIDAD",
+                                     "PRECIO_TOTAL_NETO", "PRECIO_MODIFICADO", "ROL", "POSICION" },
+        ["IMPUESTOS_DOCTOS_PV"] = new[] { "DOCTO_PV_ID", "IMPUESTO_ID", "VENTA_NETA", "VENTA_BRUTA",
+                                           "OTROS_IMPUESTOS", "PCTJE_IMPUESTO", "IMPORTE_IMPUESTO",
+                                           "UNIDADES_IMPUESTO", "IMPORTE_UNITARIO_IMPUESTO" },
+        ["IMPUESTOS_DOCTOS_PV_DET"] = new[] { "DOCTO_PV_DET_ID", "IMPUESTO_ID", "DOCTO_PV_ID",
+                                               "ID_INTERNO_TIPO_IMPTO", "TIPO_CALC",
+                                               "IMPORTE_IMPUESTO_BRUTO", "VENTA_NETA", "VENTA_BRUTA",
+                                               "OTROS_IMPUESTOS", "PCTJE_IMPUESTO", "IMPORTE_IMPUESTO",
+                                               "UNIDADES_IMPUESTO", "IMPORTE_UNITARIO_IMPUESTO" },
+        ["DOCTOS_PV_COBROS"] = new[] { "DOCTO_PV_COBRO_ID", "DOCTO_PV_ID", "TIPO", "FORMA_COBRO_ID",
+                                        "IMPORTE", "TIPO_CAMBIO", "IMPORTE_MON_DOC" },
+        ["DOCTOS_PV_LIGAS"] = new[] { "DOCTO_PV_LIGA_ID", "DOCTO_PV_FTE_ID", "DOCTO_PV_DEST_ID" },
+        ["DOCTOS_CC"] = new[] { "DOCTO_CC_ID", "CONCEPTO_CC_ID", "NATURALEZA_CONCEPTO",
+                                 "FOLIO", "SUCURSAL_ID", "FECHA", "HORA",
+                                 "CLIENTE_ID", "IMPORTE_COBRO", "TIPO_CAMBIO",
+                                 "CANCELADO", "APLICADO", "SISTEMA_ORIGEN",
+                                 "ESTATUS", "ESTATUS_ANT", "ES_CFD", "TIENE_ANTICIPO",
+                                 "ENVIADO", "CFDI_CERTIFICADO", "MODALIDAD_FACTURACION",
+                                 "CONTABILIZADO_GYP", "INTEG_BA", "CONTABILIZADO_BA" },
+        ["DOCTOS_ENTRE_SIS"] = new[] { "CLAVE_SIS_FTE", "DOCTO_FTE_ID", "CLAVE_SIS_DEST", "DOCTO_DEST_ID", "TIPO_DOCTO" },
+        ["FOLIOS_CAJAS"] = new[] { "CAJA_ID", "TIPO_DOCTO", "SERIE", "CONSECUTIVO" },
+    };
+
     // Tablas que el esquema de Microsip puede tener pero el sincronizador YA
     // NO usa (login nativo Firebird, sin AGENTES ni RUTAS). Solo informativas.
     private static readonly string[] TablasRetiradas = { "AGENTES", "RUTAS", "RUTAS_DET" };
@@ -152,6 +199,7 @@ public class AuditoriaCompatibilidadService : IAuditoriaCompatibilidadService
 
             SeccionConexion(connection, resultado);
             SeccionTablas(connection, resultado);
+            SeccionNotNull(connection, resultado);
             SeccionTriggers(connection, resultado);
             SeccionFk(connection, resultado);
             SeccionIdsCriticos(connection, resultado);
@@ -290,6 +338,97 @@ public class AuditoriaCompatibilidadService : IAuditoriaCompatibilidadService
         {
             return columnas.ToList();
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 1b. NOT NULL EFECTIVO (resolviendo el default del DOMINIO)
+    // ------------------------------------------------------------------
+    // Busca en las tablas de escritura las columnas NOT NULL SIN default
+    // efectivo (ni de columna ni del dominio RDB$FIELDS). Si el sincronizador
+    // no las escribe explicitamente en sus INSERTs, las ventas/cobranzas
+    // fallarian con violacion NOT NULL. Validado contra CHOCOLATES (FB3) y
+    // CRUZROJAS (FB5): en ambos el resultado es identico (universal).
+    private static void SeccionNotNull(FbConnection connection, AuditoriaResultadoDto resultado)
+    {
+        try
+        {
+            var tablas = ColumnasEscritasPorSync.Keys.ToList();
+            var filas = connection.Query<ColumnaNotNullFila>(
+                "SELECT TRIM(rf.RDB$RELATION_NAME) AS Tabla, TRIM(rf.RDB$FIELD_NAME) AS Columna " +
+                "FROM RDB$RELATION_FIELDS rf " +
+                "JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME = rf.RDB$FIELD_SOURCE " +
+                "WHERE rf.RDB$NULL_FLAG = 1 " +
+                "  AND rf.RDB$DEFAULT_SOURCE IS NULL " +
+                "  AND f.RDB$DEFAULT_SOURCE IS NULL " +
+                "  AND TRIM(rf.RDB$RELATION_NAME) IN @Tablas",
+                new { Tablas = tablas }).ToList();
+
+            var porTabla = ClasificarColumnasSinDefault(filas.Select(f => (f.Tabla, f.Columna)));
+
+            if (porTabla.Count == 0)
+            {
+                Report(resultado, "NOT NULL", "Columnas obligatorias sin default", "ok",
+                    "todas las columnas NOT NULL de las tablas de escritura tienen un default efectivo " +
+                    "(de columna o del dominio) o las escribe el sincronizador");
+                return;
+            }
+
+            foreach (var riesgo in porTabla)
+            {
+                if (riesgo.NoEscritas.Count > 0)
+                {
+                    Report(resultado, "NOT NULL", $"Tabla {riesgo.Tabla}", "fallo",
+                        $"columnas NOT NULL sin default que el sincronizador NO escribe al insertar: " +
+                        $"{string.Join(", ", riesgo.NoEscritas)}. Sus INSERTs fallarian con violacion NOT NULL " +
+                        $"a menos que un trigger de la BD la complete. Revisa si la version de Microsip " +
+                        $"agrego columnas nuevas.");
+                }
+                else
+                {
+                    Report(resultado, "NOT NULL", $"Tabla {riesgo.Tabla}", "ok",
+                        $"las {riesgo.SinDefault.Count} columna(s) NOT NULL sin default " +
+                        $"({string.Join(", ", riesgo.SinDefault)}) el sincronizador las escribe explicitamente");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Report(resultado, "NOT NULL", "Metadatos", "aviso", $"no verificable: {ex.Message}");
+        }
+    }
+
+    /// <summary>Resultado por tabla de la clasificacion de columnas sin default.</summary>
+    public sealed record RiesgoNotNullTabla(string Tabla, List<string> SinDefault, List<string> NoEscritas);
+
+    /// <summary>
+    /// Clasifica las columnas NOT NULL sin default efectivo por tabla, marcando
+    /// las que el sincronizador NO escribe en sus INSERTs (riesgo de fallo).
+    /// Separado del SQL para poder probarlo de forma unitaria.
+    /// </summary>
+    public static List<RiesgoNotNullTabla> ClasificarColumnasSinDefault(
+        IEnumerable<(string Tabla, string Columna)> sinDefault)
+    {
+        var porTabla = sinDefault
+            .Select(x => (Tabla: x.Tabla.Trim().ToUpperInvariant(), Columna: x.Columna.Trim().ToUpperInvariant()))
+            .GroupBy(x => x.Tabla)
+            .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
+
+        var resultado = new List<RiesgoNotNullTabla>();
+        foreach (var grupo in porTabla)
+        {
+            var escritas = (ColumnasEscritasPorSync.TryGetValue(grupo.Key, out var set) ? set : Array.Empty<string>())
+                .Select(c => c.ToUpperInvariant()).ToHashSet();
+            var todas = grupo.Select(g => g.Columna).OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToList();
+            var noEscritas = todas.Where(c => !escritas.Contains(c)).ToList();
+            resultado.Add(new RiesgoNotNullTabla(grupo.Key, todas, noEscritas));
+        }
+        return resultado;
+    }
+
+    private sealed class ColumnaNotNullFila
+    {
+        public string Tabla { get; set; } = "";
+        public string Columna { get; set; } = "";
     }
 
     // ------------------------------------------------------------------

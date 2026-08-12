@@ -276,6 +276,54 @@ public class AdminController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// GET /api/v2/admin/conexion
+    /// Devuelve la cadena Firebird configurada DESGLOSADA en sus componentes
+    /// (ruta BD, usuario, password, servidor, puerto, dialecto, charset,
+    /// pooling, timeout) para mostrarlos como campos estructurados en el panel.
+    /// FbConnectionStringBuilder normaliza los aliases del provider
+    /// (initial catalog, user id, port number, character set...), asi que
+    /// cualquier formato de cadena se desglosa igual.
+    /// </summary>
+    [HttpGet("conexion")]
+    public IActionResult GetConexion()
+    {
+        var connectionString = _configuration.GetConnectionString("FirebirdConnection") ?? "";
+        if (string.IsNullOrWhiteSpace(connectionString))
+            return Ok(new { cadena = "", campos = (object?)null });
+
+        try
+        {
+            var builder = new FbConnectionStringBuilder(connectionString);
+            return Ok(new
+            {
+                cadena = connectionString,
+                campos = new
+                {
+                    database = builder.Database,
+                    user = builder.UserID,
+                    password = builder.Password,
+                    data_source = builder.DataSource,
+                    port = builder.Port,
+                    dialect = builder.Dialect,
+                    pooling = builder.Pooling,
+                    charset = builder.Charset,
+                    connection_timeout = builder.ConnectionTimeout
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cadena Firebird no parseable");
+            return Ok(new
+            {
+                cadena = connectionString,
+                campos = (object?)null,
+                error = "La cadena no se pudo desglosar: " + ex.Message
+            });
+        }
+    }
+
     // ========================================================================
     // VALIDACION DE IDs CRITICOS POR CAMPO (analisis de la BD configurada)
     // El panel usa esto para: bloquear los campos correctos, marcar los que
@@ -294,8 +342,19 @@ public class AdminController : ControllerBase
         var connectionString = _configuration.GetConnectionString("FirebirdConnection");
         var bd = string.IsNullOrWhiteSpace(connectionString) ? "" : ExtraerRutaBd(connectionString);
 
+        // Version detectada del header .fdb (sin conexion): funciona para todas
+        // las versiones, incluso cuando el servidor local no puede abrir la BD
+        // (ej. BD Firebird 5.0 con servidor Firebird 3.0).
+        var (odsMajor, odsMinor) = FirebirdVersionDetector.LeerOdsDeArchivo(bd);
+        string versionFirebird = odsMajor > 0
+            ? FirebirdVersionDetector.NombreFirebirdDeOds(odsMajor, odsMinor)
+            : "";
+        int? odsMayor = odsMajor > 0 ? odsMajor : null;
+        // El minor puede ser legitimo 0 (ej. ODS 12.0, 13.0): solo es invalido si el major no se leyo
+        int? odsMenor = odsMayor.HasValue ? odsMinor : null;
+
         if (string.IsNullOrWhiteSpace(connectionString))
-            return Ok(new { conexion_ok = false, bd, error = "No hay cadena de conexion Firebird configurada.", campos = Array.Empty<object>() });
+            return Ok(new { conexion_ok = false, bd, version_firebird = versionFirebird, ods_major = odsMayor, ods_minor = odsMenor, error = "No hay cadena de conexion Firebird configurada.", campos = Array.Empty<object>() });
 
         try
         {
@@ -327,12 +386,12 @@ public class AdminController : ControllerBase
                 campos.Add(await ValidarIdAsync(connection, "CreditFormaCobroIds", "FORMAS_COBRO", "FORMA_COBRO_ID",
                     creditIds[i], $"Forma de cobro a credito [{i + 1}]", true, "formas_cobro", i));
 
-            return Ok(new { conexion_ok = true, bd, campos });
+            return Ok(new { conexion_ok = true, bd, version_firebird = versionFirebird, ods_major = odsMayor, ods_minor = odsMenor, campos });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validando IDs criticos");
-            return Ok(new { conexion_ok = false, bd, error = ex.Message, campos = Array.Empty<object>() });
+            return Ok(new { conexion_ok = false, bd, version_firebird = versionFirebird, ods_major = odsMayor, ods_minor = odsMenor, error = ex.Message, campos = Array.Empty<object>() });
         }
     }
 
@@ -536,14 +595,23 @@ public class AdminController : ControllerBase
 
     private static string ExtraerRutaBd(string connectionString)
     {
-        foreach (var parte in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        // Reutiliza el builder: normaliza aliases (initial catalog, comillas, etc.)
+        try
         {
-            var idx = parte.IndexOf('=');
-            if (idx <= 0) continue;
-            if (parte[..idx].Trim().Equals("Database", StringComparison.OrdinalIgnoreCase))
-                return parte[(idx + 1)..].Trim();
+            return new FbConnectionStringBuilder(connectionString).Database;
         }
-        return connectionString;
+        catch
+        {
+            // Fallback manual por si la cadena no es valida
+            foreach (var parte in connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var idx = parte.IndexOf('=');
+                if (idx <= 0) continue;
+                if (parte[..idx].Trim().Equals("Database", StringComparison.OrdinalIgnoreCase))
+                    return parte[(idx + 1)..].Trim().Trim('"');
+            }
+            return connectionString;
+        }
     }
 
     public class SyncMatutinoRequest

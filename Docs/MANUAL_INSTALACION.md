@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Software** | Sincronizador RUTX (.NET 10) |
-| **Versión** | 1.2 |
+| **Versión** | 1.3 |
 | **Fecha** | Agosto 2026 |
 | **Componentes** | `Rutx.Sincronizador.Admin.exe` (launcher) · `Rutx.Sincronizador.exe` (API como servicio Windows, puerto 5047) |
 
@@ -97,6 +97,33 @@ El asistente detecta la versión de Firebird de la BD elegida en **dos niveles**
 > - Que el asistente **detecte** la versión (por ODS) no garantiza que el driver
 >   pueda **conectar** con ella: el driver incluido soporta oficialmente
 >   **Firebird 2.5 en adelante**.
+
+#### Esquema compatible entre versiones (universal)
+
+El esquema de Microsip es **prácticamente idéntico entre versiones**: se
+verificó una BD de Microsip 2025/2026 (**Firebird 5.0, ODS 13.1**) contra una
+anterior (**Firebird 3.0, ODS 12.0**) y resultaron las **mismas 33 tablas
+críticas**, las mismas columnas requeridas, los **mismos 8 triggers críticos**
+(`DOCTOS_PV_BEFINS`, `DOCTOS_PV_DET_BEFINS`, `DOCTOS_PV_COBROS_BEFINS`,
+`DOCTOS_PV_COBROS_AFTINS_0`, `DOCTOS_PV_AFTUPD_0`, `DOCTOS_PV_BEFUPD_0`,
+`DOCTOS_PV_LIGAS_BEFINS`, `DOCTOS_CC_BEFINS`), la misma FK
+`CAJEROS_A_DOCTOS_PV` y los generadores `ID_DOCTOS` / `ID_CATALOGOS`.
+
+Las únicas diferencias son **columnas nuevas opcionales** (ej.
+`DOCTOS_CC.CENTRO_COSTO_ID`, `CONCEPTOS_CC.MANEJA_CENTROS_COSTO`) que **no
+afectan** al sincronizador. Por eso **no hay que configurar nada por versión**:
+las consultas funcionan igual en Firebird 3.0, 4.0 y 5.0.
+
+**Validación de escritura real en FB 5.0**: el INSERT de venta de
+`VentaServicePv` (header `DOCTOS_PV` con los IDs reales de la BD del cliente)
+se ejecutó exitosamente contra una BD Firebird 5.0 (ODS 13.1) con el motor
+5.0.4 embebido: los triggers generan el ID (`-1 → GEN_ID`), las CHECKs/FKs
+aceptan los valores del sync y `ES_FAC_GLOBAL` se completa con el default del
+dominio. La prueba se hizo en transacción y se revirtió, sin dejar datos.
+
+Lo que sí cambia entre clientes son los **IDs** (moneda, condición de pago,
+impuestos, sucursal, cajero...), porque cada BD Microsip tiene los suyos. Eso
+se configura desde el panel web (sección 5.1) con la validación automática.
 
 ---
 
@@ -307,12 +334,41 @@ Abre el panel con **⚙ Conf (web)**.
 El formulario edita `appsettings.json`. Al guardar, el servidor crea un respaldo
 `.bak` automático y aplica los cambios **en caliente** (sin reiniciar).
 
+La card **Conexión a la base de datos** muestra los parámetros de la BD
+Firebird **desglosados en campos** (ruta del `.fdb`, servidor, puerto, usuario,
+contraseña, dialecto, charset, pooling y timeout) en **solo lectura** por
+ahora: la cadena se conserva intacta en `appsettings.json`. También muestra la
+**versión detectada** de la BD (ej. `🗄️ CRUZROJASCLC.fdb · Firebird 5.0 (ODS
+13.1)`), leída del **header del archivo `.fdb`** (sin conexión), así que se
+muestra incluso cuando el servidor local no puede abrir la BD (BD más nueva
+que el servidor Firebird de la PC).
+
 | Sección | Campos |
 |---|---|
 | `ConnectionStrings` | `FirebirdConnection` (ruta de la BD, usuario, contraseña, `localhost:3050`) |
 | `MicrosipSettings` | `DefaultMonedaId`, `DefaultCondPagoId`, `DefaultSucursalId`, `DefaultAlmacenId`, `DefaultImpuestoId`, `DefaultPrecioEmpresaId`, `DefaultFormaCobroId`, `CreditFormaCobroIds`, `DefaultCajeroId`, `DefaultConceptoCobroId` |
 
-> **[Captura de pantalla: panel web, sección Configuración]**
+#### Validación automática de IDs contra la BD
+
+Al abrir el panel, cada campo de `MicrosipSettings` se **valida en vivo contra
+la BD configurada** (`GET /api/v2/admin/ids-criticos`):
+
+- **✓ Campo correcto** — el ID existe en la BD: queda **bloqueado** y muestra el
+  nombre real del registro (ej. `✓ CONTADO · CONDICIONES_PAGO.COND_PAGO_ID`).
+- **✗ Campo con error** — el ID no existe (los IDs cambian entre clientes):
+  queda **editable** con un botón **🔍 Buscar** que abre una **consulta
+  predefinida** del catálogo (buscar por nombre o por ID) para elegir el valor
+  correcto.
+- **Formas de cobro a crédito** (`CreditFormaCobroIds`) — lista editable
+  separada por comas, con verificación individual por ID.
+- Al **guardar**, la validación se re-ejecuta automáticamente.
+
+> Catálogos con consulta predefinida: `MONEDAS`, `CONDICIONES_PAGO`,
+> `SUCURSALES`, `ALMACENES`, `IMPUESTOS`, `FORMAS_COBRO`, `CAJEROS`,
+> `CONCEPTOS_CC` y `PRECIOS_EMPRESA`. La columna de nombre se descubre sola de
+> los metadatos, porque cada BD Microsip la nombra distinto.
+
+> **[Captura de pantalla: panel web, sección Configuración con validación de IDs]**
 
 ### 5.2 Estado de compatibilidad
 
@@ -322,6 +378,14 @@ automáticamente al abrir**:
 - 🔴 **Faltantes** — requiere configuración.
 - 🟡 **Avisos** — funciona, pero conviene revisar.
 - 🟢 **Ok** — verificación correcta.
+
+La auditoría incluye la sección **NOT NULL**: verifica en las tablas que el
+sincronizador escribe (ventas, cobranzas, clientes, folios) que toda columna
+`NOT NULL` sin **default efectivo** (de la columna o del **dominio** de
+Firebird) sea una que el sincronizador escribe explícitamente al insertar.
+Si una versión nueva de Microsip agrega una columna obligatoria sin default
+que el sincronizador no llena, la auditoría la marca en 🔴 con su nombre para
+revisarla antes de que falle la primera venta.
 
 > **[Captura de pantalla: panel web, card Estado de compatibilidad con puntitos]**
 
@@ -363,6 +427,11 @@ Confirma que la instalación quedó operativa:
 | La auditoría marca IDs faltantes | IDs por defecto que no existen en la BD | Reasigna los `Default*Id` desde el panel web (sección 5.1) |
 | La app móvil no conecta a la API | IP/puerto incorrectos, red o firewall | Verifica `IP:5047`, misma red que los vendedores, puerto abierto |
 | La conexión a la BD falla | Firebird detenido, puerto 3050 o credenciales | Confirma el servicio Firebird y las credenciales reales |
+| Error `Violación de llave foránea` al guardar una venta | Un ID referenciado (cliente, cajero, forma de cobro, impuesto…) no existe en la BD | El error indica la constraint y la tabla (ej. `ARTS_A_DOCTOS_PV_DET`). Corrige los IDs desde el panel web (sección 5.1) |
+| Error de campo vacío (`NOT NULL`) al insertar | La app envió un dato incompleto | El mensaje indica la columna. Revisa la información enviada desde la app |
+| Error `Valor duplicado` | Ya existe el folio/llave (otro proceso lo creó) | El sincronizador concilia en el siguiente intento; si persiste, revisa folios de la caja (sección 8) |
+| Error de `deadlock` / base ocupada | Microsip está escribiendo en la misma tabla en ese momento | Es transitorio: la operación se reintenta sola (respuesta `reintentable: true`) |
+| Los errores de la API ahora incluyen `categoria` y `reintentable` | Comportamiento nuevo: los errores SQL se clasifican con mensaje accionable | La app y el panel pueden mostrar el mensaje `mensaje` directamente; `categoria` indica el tipo (llave foránea, conexión, ODS…) |
 | El asistente muestra `Firebird (ODS X.Y) — version desconocida` | BD de Firebird 1.5/2.0: esas versiones no tienen la función SQL de la versión exacta | Es esperado: la familia se identifica por el ODS del archivo (sección 1). Considera actualizar Firebird |
 | El asistente avisa que la versión de Firebird es muy antigua | Firebird 2.0/2.1/2.5 (sin soporte oficial del motor) | Funciona, pero conviene actualizar a 3.0+ (sección 1) |
 | El asistente detecta la versión pero no conecta (🔴) | El driver incluido soporta oficialmente Firebird 2.5+; en 2.1 o inferior la conexión puede fallar | Actualiza el servidor Firebird a 2.5 o superior (sección 1) |

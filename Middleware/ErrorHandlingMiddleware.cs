@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Rutx.Sincronizador.Models;
+using Rutx.Sincronizador.Services;
 
 namespace Rutx.Sincronizador.Middleware;
 
@@ -30,7 +31,38 @@ public class ErrorHandlingMiddleware
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
-        var statusCode = exception switch
+        // Errores SQL/Firebird: se clasifican para dar un mensaje accionable en espanol.
+        var sqlError = SqlErrorClassifier.Clasificar(exception);
+        if (sqlError.Tipo != SqlErrorTipo.Desconocido)
+        {
+            var statusCode = sqlError.Tipo switch
+            {
+                SqlErrorTipo.OdsNoSoportada => (int)HttpStatusCode.InternalServerError,
+                SqlErrorTipo.ErrorConexion => (int)HttpStatusCode.ServiceUnavailable,
+                SqlErrorTipo.BloqueoODeadlock => (int)HttpStatusCode.ServiceUnavailable,
+                SqlErrorTipo.ViolacionLlaveForanea => (int)HttpStatusCode.Conflict,
+                SqlErrorTipo.ValorDuplicado => (int)HttpStatusCode.Conflict,
+                SqlErrorTipo.PermisosInsuficientes => (int)HttpStatusCode.Forbidden,
+                SqlErrorTipo.BaseDatosSoloLectura => (int)HttpStatusCode.Forbidden,
+                _ => (int)HttpStatusCode.BadRequest
+            };
+
+            var response = new
+            {
+                mensaje = sqlError.MensajeAmigable,
+                detalle = sqlError.Detalle,
+                categoria = sqlError.Tipo.ToString(),
+                reintentable = sqlError.EsReintentable
+            };
+
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = statusCode;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+            return;
+        }
+
+        // Resto de excepciones: mapeo de negocio existente.
+        var statusCode2 = exception switch
         {
             ArgumentException => (int)HttpStatusCode.BadRequest,
             FolioSinSeriesException => (int)HttpStatusCode.BadRequest,
@@ -43,9 +75,9 @@ public class ErrorHandlingMiddleware
             _ => (int)HttpStatusCode.InternalServerError
         };
 
-        var response = new
+        var response2 = new
         {
-            mensaje = statusCode switch
+            mensaje = statusCode2 switch
             {
                 400 => "Solicitud inválida.",
                 404 => "Recurso no encontrado.",
@@ -55,12 +87,14 @@ public class ErrorHandlingMiddleware
                 504 => "El servidor no respondió a tiempo.",
                 _ => "Error interno del servidor."
             },
-            detalle = exception.Message
+            detalle = exception.Message,
+            categoria = "desconocido",
+            reintentable = false
         };
 
         context.Response.ContentType = "application/json";
-        context.Response.StatusCode = statusCode;
+        context.Response.StatusCode = statusCode2;
 
-        await context.Response.WriteAsync(JsonSerializer.Serialize(response));
+        await context.Response.WriteAsync(JsonSerializer.Serialize(response2));
     }
 }

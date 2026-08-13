@@ -22,15 +22,18 @@ public class VentasPvController : ControllerBase
 {
     private readonly IVentaServicePv _ventaServicePv;
     private readonly IColaOfflineRepository _colaRepository;
+    private readonly IFotoStorageService _fotoStorage;
     private readonly ILogger<VentasPvController> _logger;
 
     public VentasPvController(
         IVentaServicePv ventaServicePv,
         IColaOfflineRepository colaRepository,
+        IFotoStorageService fotoStorage,
         ILogger<VentasPvController> logger)
     {
         _ventaServicePv = ventaServicePv ?? throw new ArgumentNullException(nameof(ventaServicePv));
         _colaRepository = colaRepository ?? throw new ArgumentNullException(nameof(colaRepository));
+        _fotoStorage = fotoStorage ?? throw new ArgumentNullException(nameof(fotoStorage));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -124,13 +127,17 @@ public class VentasPvController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/v1/pv/noventa
+    /// POST /api/v1/pv/noventa  (multipart/form-data)
     /// Registra una No Venta en DOCTOS_PV con TIPO_DOCTO = 'V'
     /// (estatus 'N' + prefijo 'NO VENTA:' en la descripcion).
+    ///
+    /// La foto se adjunta como archivo `foto` del multipart; el servidor la
+    /// guarda en la carpeta configurada (Storage:FotosPath) y la referencia
+    /// (nombre del archivo) queda en DOCTOS_PV.DESCRIPCION (segmento FOTO:).
     /// La identidad se resuelve del token JWT.
     /// </summary>
     [HttpPost("noventa")]
-    public async Task<IActionResult> RegistrarNoVenta([FromBody] NoVentaPvCreateDto dto)
+    public async Task<IActionResult> RegistrarNoVenta([FromForm] NoVentaPvFormDto form)
     {
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
@@ -141,7 +148,30 @@ public class VentasPvController : ControllerBase
             if (sesion == null)
                 return Unauthorized(new { message = "Token inválido: faltan datos de sesión." });
 
+            // Guardar la foto en disco (si viene adjunta) y usar su nombre
+            // como referencia en DOCTOS_PV.
+            var referenciaFoto = await _fotoStorage.GuardarAsync(form.Foto, form.VentaMovilId);
+
+            var dto = new NoVentaPvCreateDto
+            {
+                VentaMovilId = form.VentaMovilId,
+                VendedorId = form.VendedorId,
+                ClienteId = form.ClienteId,
+                FechaHora = form.FechaHora,
+                CajaId = form.CajaId,
+                CajeroId = form.CajeroId,
+                UsuarioCreador = form.UsuarioCreador,
+                CausaId = form.CausaId,
+                CausaDesc = form.CausaDesc,
+                Comentario = form.Comentario,
+                FotoPath = referenciaFoto
+            };
+
+            // El servicio devuelve un objeto con docto_pv_id / folio (snake_case
+            // por el JsonNamingPolicy configurado); se responde tal cual para
+            // conservar el contrato que consume la app.
             var response = await _ventaServicePv.RegistrarNoVentaPvAsync(sesion, dto);
+
             return StatusCode(201, response);
         }
         catch (ArgumentException ex)
@@ -160,31 +190,17 @@ public class VentasPvController : ControllerBase
     }
 
     /// <summary>
-    /// Reconstruye la identidad del usuario desde los claims del token JWT.
-    /// Returns null si falta informacion critica (vendedor/caja).
+    /// GET /api/v1/pv/fotos/{nombre}
+    /// Sirve una fotografia de no-venta guardada en la carpeta de fotos.
     /// </summary>
-    private UsuarioSesion? ObtenerSesionDeClaims()
+    [HttpGet("fotos/{nombre}")]
+    public IActionResult ObtenerFoto(string nombre)
     {
-        var vendedorId = ObtenerClaimEntero("vendedor_id");
-        if (vendedorId <= 0)
-            return null;
+        var archivo = _fotoStorage.Obtener(nombre);
+        if (archivo == null)
+            return NotFound(new { message = "Foto no encontrada." });
 
-        return new UsuarioSesion
-        {
-            Usuario = User.FindFirst("usuario")?.Value ?? "",
-            VendedorId = vendedorId,
-            VendedorNombre = User.FindFirst("vendedor_nombre")?.Value ?? "VENDEDOR",
-            CajeroId = ObtenerClaimEntero("cajero_id"),
-            CajaId = ObtenerClaimEntero("caja_id"),
-            AlmacenId = ObtenerClaimEntero("almacen_id"),
-            SucursalId = ObtenerClaimEntero("sucursal_id")
-        };
-    }
-
-    private int ObtenerClaimEntero(string tipo)
-    {
-        var valor = User.FindFirst(tipo)?.Value;
-        return int.TryParse(valor, out var n) ? n : 0;
+        return PhysicalFile(archivo.FullName, "image/jpeg");
     }
 
     /// <summary>
@@ -264,5 +280,33 @@ public class VentasPvController : ControllerBase
         {
             return StatusCode(500, new { message = "Error al consultar el ticket", error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Reconstruye la identidad del usuario desde los claims del token JWT.
+    /// Returns null si falta informacion critica (vendedor/caja).
+    /// </summary>
+    private UsuarioSesion? ObtenerSesionDeClaims()
+    {
+        var vendedorId = ObtenerClaimEntero("vendedor_id");
+        if (vendedorId <= 0)
+            return null;
+
+        return new UsuarioSesion
+        {
+            Usuario = User.FindFirst("usuario")?.Value ?? "",
+            VendedorId = vendedorId,
+            VendedorNombre = User.FindFirst("vendedor_nombre")?.Value ?? "VENDEDOR",
+            CajeroId = ObtenerClaimEntero("cajero_id"),
+            CajaId = ObtenerClaimEntero("caja_id"),
+            AlmacenId = ObtenerClaimEntero("almacen_id"),
+            SucursalId = ObtenerClaimEntero("sucursal_id")
+        };
+    }
+
+    private int ObtenerClaimEntero(string tipo)
+    {
+        var valor = User.FindFirst(tipo)?.Value;
+        return int.TryParse(valor, out var n) ? n : 0;
     }
 }

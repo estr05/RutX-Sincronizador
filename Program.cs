@@ -158,6 +158,13 @@ builder.Services.AddScoped<IFolioService, FolioService>();
 builder.Services.AddScoped<IRouteService, RouteService>();
 builder.Services.AddScoped<IDebugRouteService>(sp => (IDebugRouteService)sp.GetRequiredService<IRouteService>());
 
+// Reconciliacion de movimientos de inventario (TRANSFER / SEED / ANOMALIA)
+builder.Services.AddScoped<IInventarioReconciliacionService, InventarioReconciliacionService>();
+builder.Services.AddHostedService<ReconciliacionInventarioBackgroundService>();
+
+// Almacenamiento de fotos de no-ventas (carpeta configurable Storage:FotosPath)
+builder.Services.AddSingleton<IFotoStorageService, FotoStorageService>();
+
 // Servicio de Cobranza (Pago de creditos)
 builder.Services.AddScoped<ICobranzaService, CobranzaService>();
 

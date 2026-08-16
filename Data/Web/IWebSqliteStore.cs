@@ -24,7 +24,11 @@ public interface IWebSqliteStore
         string passwordHash,
         string rolesJson,
         bool mustChangePassword,
+        string zoneIdsJson = "[]",
         CancellationToken cancellationToken = default);
+
+    /// <summary>Actualiza el hash de contraseña (rotación tras NecesitaRehash o cambio).</summary>
+    Task UpdateUserPasswordAsync(long userId, string passwordHash, CancellationToken cancellationToken = default);
 
     Task<int> CountUsersAsync(CancellationToken cancellationToken = default);
 
@@ -46,6 +50,38 @@ public interface IWebSqliteStore
         string action,
         string? detail,
         string? ipAddress,
+        string? traceId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Bandeja paginada; los listados de destino restringen el alcance por zonas del usuario.</summary>
+    Task<(IReadOnlyList<WebNotificationRow> Items, int Total)> ListNotificationsAsync(
+        string? status,
+        string? targetType,
+        IReadOnlyList<int>? sellerTargetIds,
+        IReadOnlyList<int>? zoneTargetIds,
+        int page,
+        int perPage,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Contador de avisos activos en el alcance del usuario (campana del topbar).</summary>
+    Task<int> CountActiveNotificationsAsync(
+        IReadOnlyList<int>? sellerTargetIds,
+        IReadOnlyList<int>? zoneTargetIds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Un aviso por Idempotency-Key (detección de reintentos del comando).</summary>
+    Task<WebNotificationRow?> FindNotificationByIdempotencyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>Crea un aviso (una fila por destinatario) con su clave de idempotencia y traza.</summary>
+    Task<WebNotificationRow> CreateNotificationAsync(
+        string targetType,
+        int targetId,
+        string title,
+        string body,
+        string priority,
+        long? senderUserId,
+        string? senderUsername,
+        string idempotencyKey,
         string? traceId,
         CancellationToken cancellationToken = default);
 }

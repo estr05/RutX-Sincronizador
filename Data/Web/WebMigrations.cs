@@ -7,6 +7,9 @@ namespace Rutx.Sincronizador.Data.Web;
 ///   v001 — esquema base del portal: usuarios de oficina (hash PBKDF2),
 ///          zonas y su mapeo a vendedores (WebZoneSellers), bandeja de
 ///          notificaciones y bitácora de auditoría.
+///   v002 — zonas autorizadas por usuario: columna web_users.zone_ids
+///          (JSON). Vacío = usuario sin restricción de zona; el JWT web
+///          materializa esos ids en el claim zone_ids (contrato v2 §5.1).
 ///
 /// Convenciones:
 ///   - Fechas: TEXT ISO 8601 (contrato v2 §4).
@@ -18,6 +21,7 @@ public static class WebMigrations
     public static readonly IReadOnlyList<WebMigration> All = new List<WebMigration>
     {
         new(1, "esquema-base-portal", EsquemaBasePortal),
+        new(2, "zonas-autorizadas-por-usuario", ZonasAutorizadasPorUsuario),
     };
 
     private const string EsquemaBasePortal = @"
@@ -76,5 +80,10 @@ public static class WebMigrations
         );
         CREATE INDEX IF NOT EXISTS ix_web_audit_log_created ON web_audit_log(created_at);
         CREATE INDEX IF NOT EXISTS ix_web_audit_log_username ON web_audit_log(username);
+    ";
+
+    private const string ZonasAutorizadasPorUsuario = @"
+        ALTER TABLE web_users ADD COLUMN zone_ids TEXT NOT NULL DEFAULT '[]';
+        CREATE INDEX IF NOT EXISTS ix_web_users_zone_ids ON web_users(zone_ids);
     ";
 }

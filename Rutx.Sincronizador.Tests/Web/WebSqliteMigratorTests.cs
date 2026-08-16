@@ -32,8 +32,8 @@ public class WebSqliteMigratorTests
 
         var version = await migrator.ApplyAsync();
 
-        Assert.Equal(1, version);
-        Assert.Equal(1, await migrator.VersionVigenteAsync());
+        Assert.Equal(2, version);
+        Assert.Equal(2, await migrator.VersionVigenteAsync());
 
         await using var conn = new SqliteConnection(Conectar(db));
         await conn.OpenAsync();
@@ -48,10 +48,16 @@ public class WebSqliteMigratorTests
 
         var indices = await IndicesAsync(conn);
         Assert.Contains("ix_web_users_username", indices);
+        Assert.Contains("ix_web_users_zone_ids", indices);
         Assert.Contains("ix_web_notifications_target", indices);
         Assert.Contains("ix_web_notifications_status", indices);
         Assert.Contains("ix_web_audit_log_created", indices);
         Assert.Contains("ix_web_audit_log_username", indices);
+
+        // v002: zonas autorizadas por usuario (JSON; vacío = sin restricción).
+        await using var columna = conn.CreateCommand();
+        columna.CommandText = "SELECT COUNT(*) FROM pragma_table_info('web_users') WHERE name = 'zone_ids';";
+        Assert.Equal(1L, await columna.ExecuteScalarAsync());
     }
 
     [Fact]
@@ -68,7 +74,7 @@ public class WebSqliteMigratorTests
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM schema_version;";
-        Assert.Equal(1L, await cmd.ExecuteScalarAsync());
+        Assert.Equal(2L, await cmd.ExecuteScalarAsync());
     }
 
     [Fact]
@@ -92,7 +98,7 @@ public class WebSqliteMigratorTests
 
         var migrator = new WebSqliteMigrator(Conectar(db), logger: NullLogger<WebSqliteMigrator>.Instance);
         var version = await migrator.ApplyAsync();
-        Assert.Equal(1, version);
+        Assert.Equal(2, version);
 
         await using var conn2 = new SqliteConnection(Conectar(db));
         await conn2.OpenAsync();

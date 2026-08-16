@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.IdentityModel.Tokens;
 using Rutx.Sincronizador.Data;
@@ -8,6 +9,7 @@ using Rutx.Sincronizador.Services;
 using Rutx.Sincronizador.Services.Web;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 // ----------------------------------------------------------------
 // ContentRoot fijo: siempre el directorio del exe.
 // Cuando se ejecuta como servicio (SCM) o tarea programada, el
@@ -201,6 +203,10 @@ builder.Services.AddHostedService<BackgroundSyncService>();
 builder.Services.AddScoped<IDashboardWebService, DashboardWebService>();
 builder.Services.AddScoped<IReportsWebService, ReportsWebService>();
 builder.Services.AddScoped<IRouteMonitoringWebService, RouteMonitoringWebService>();
+builder.Services.AddScoped<IWebAuthService, WebAuthService>();
+builder.Services.AddScoped<ICustomerWebService, CustomerWebService>();
+builder.Services.AddScoped<IInventoryWebService, InventoryWebService>();
+builder.Services.AddScoped<INotificationWebService, NotificationWebService>();
 
 // BD complementaria web (SQLite): esquema gestionado por migraciones
 // versionadas (WebSqliteMigrator + schema_version) y credenciales de
@@ -234,7 +240,42 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Portal web v2: cada permiso del contrato (§8) es una política.
+    // El handler exige scope=web + el permiso en los claims del JWT.
+    foreach (var permiso in Rutx.Sincronizador.Services.Web.WebRoleCatalog
+                 .PermisosPorRol.Values
+                 .SelectMany(p => p)
+                 .Distinct(StringComparer.Ordinal))
+    {
+        options.AddPolicy($"web.{permiso}",
+            policy => policy.Requirements.Add(new Rutx.Sincronizador.Security.Web.WebPermissionRequirement(permiso)));
+    }
+
+    // Endpoints de identidad: cualquier token del portal (scope=web).
+    options.AddPolicy("web.any",
+        policy => policy.Requirements.Add(new Rutx.Sincronizador.Security.Web.WebPermissionRequirement(string.Empty)));
+});
+
+// Handler de autorización por permiso del portal.
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, Rutx.Sincronizador.Security.Web.WebPermissionHandler>();
+
+// Rate limit del login del portal: 5 intentos por IP por minuto (contrato v2 §5).
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("web-login", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonimo",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true,
+            }));
+});
 
 var app = builder.Build();
 
@@ -244,6 +285,7 @@ var app = builder.Build();
 app.UseMiddleware<WebTraceIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseStaticFiles(); // Panel de administracion (wwwroot)
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

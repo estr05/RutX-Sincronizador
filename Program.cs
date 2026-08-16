@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.IdentityModel.Tokens;
 using Rutx.Sincronizador.Data;
+using Rutx.Sincronizador.Data.Web;
 using Rutx.Sincronizador.Middleware;
 using Rutx.Sincronizador.Services;
 using Rutx.Sincronizador.Services.Web;
@@ -201,6 +202,21 @@ builder.Services.AddScoped<IDashboardWebService, DashboardWebService>();
 builder.Services.AddScoped<IReportsWebService, ReportsWebService>();
 builder.Services.AddScoped<IRouteMonitoringWebService, RouteMonitoringWebService>();
 
+// BD complementaria web (SQLite): esquema gestionado por migraciones
+// versionadas (WebSqliteMigrator + schema_version) y credenciales de
+// administrador inicial SOLO desde configuración externa (nunca versionadas).
+string webSqlitePath = builder.Configuration.GetValue<string>("WebSqlite:Ruta")
+    ?? "Data/web.db";
+if (!Path.IsPathRooted(webSqlitePath))
+    webSqlitePath = Path.Combine(builder.Environment.ContentRootPath, webSqlitePath);
+var webSqliteDir = Path.GetDirectoryName(webSqlitePath);
+if (!string.IsNullOrWhiteSpace(webSqliteDir))
+    Directory.CreateDirectory(webSqliteDir);
+string webSqliteConnectionString = $"Data Source={webSqlitePath}";
+
+builder.Services.AddSingleton<IWebSqliteStore>(sp =>
+    new WebSqliteStore(webSqliteConnectionString, sp.GetRequiredService<ILogger<WebSqliteStore>>()));
+
 // Configuración JWT (Mauricio)
 var key = builder.Configuration["Jwt:Key"];
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -222,11 +238,30 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// Frontera web v2: trace_id se propaga ANTES del manejo de errores para que
+// el envelope de error web lo incluya. Móvil y administrador local conservan
+// su formato legado (ErrorHandlingMiddleware ramifica por prefijo /api/v2/web).
+app.UseMiddleware<WebTraceIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseStaticFiles(); // Panel de administracion (wwwroot)
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Esquema web (migraciones versionadas) + administrador inicial controlado.
+// El arranque no se bloquea si la BD complementaria no está disponible:
+// los endpoints web responderán 503 hasta que se resuelva.
+try
+{
+    var webStore = app.Services.GetRequiredService<IWebSqliteStore>();
+    var version = await webStore.EnsureSchemaAsync();
+    await webStore.EnsureAdminSeedAsync(app.Configuration);
+    app.Logger.LogInformation("BD complementaria web lista (esquema v{Version}).", version);
+}
+catch (Exception ex)
+{
+    app.Logger.LogError(ex, "No se pudo preparar la BD complementaria web. Los endpoints /api/v2/web quedan indisponibles hasta resolverlo.");
+}
 
 // Health check: permite que la app móvil detecte si el servidor es accesible
 

@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Rutx.Sincronizador.Data;
 using Rutx.Sincronizador.Middleware;
 using Rutx.Sincronizador.Services;
+using Rutx.Sincronizador.Services.Web;
 using System.Text;
 using System.Text.Json.Serialization;
 // ----------------------------------------------------------------
@@ -194,6 +195,11 @@ string sqliteConnectionString = $"Data Source={sqlitePath}";
 builder.Services.AddSingleton<IColaOfflineRepository>(new ColaOfflineRepository(sqliteConnectionString));
 builder.Services.AddScoped<IColaOfflineService, ColaOfflineService>();
 builder.Services.AddHostedService<BackgroundSyncService>();
+
+// Servicios v2 web (contrato v2 §8): flujo Controller Web → Interface Web → Service Web.
+builder.Services.AddScoped<IDashboardWebService, DashboardWebService>();
+builder.Services.AddScoped<IReportsWebService, ReportsWebService>();
+builder.Services.AddScoped<IRouteMonitoringWebService, RouteMonitoringWebService>();
 
 // Configuración JWT (Mauricio)
 var key = builder.Configuration["Jwt:Key"];

@@ -345,6 +345,67 @@ El portal Laravel concentrará sus llamadas en `App\Services\ApiClient`, configu
 
 ---
 
+## 12. Bloque 0 — Decisiones de línea base (Sprint 4)
+
+Este anexo registra las decisiones verificadas antes de construir los módulos de Clientes, Inventario y Notificaciones. Son vinculantes para el contrato: cualquier cambio posterior exige una entrada nueva aquí y actualización coordinada de ambas copias del documento.
+
+### 12.1 Identidad de ruta: `route_id` ≡ `VENDEDOR_ID`
+
+Auditoría de uso en app móvil y Sincronizador (Sprint 4):
+
+| Hallazgo verificado | Decisión |
+|---|---|
+| `RUTAS`, `RUTAS_DET` y `AGENTES` (Firebird) no alimentan el flujo operativo actual: la app móvil trabaja con `VENDEDOR_ID` y el Sincronizador la usa como identidad de la jornada. | Se **retiran del flujo web**; no se exponen catálogos ni filtros basados en ellas. |
+| No existe tabla `ZONAS` en Firebird. | Las zonas se modelan en la BD complementaria SQLite (`web_zones`, `web_zone_sellers`, migración v001). |
+| El contrato v2 usa `route_id` y `seller_id` como dimensiones de filtro. | `route_id` ≡ `VENDEDOR_ID` como **compatibilidad temporal documentada**: los endpoints web reciben `route_id` y lo resuelven al `VENDEDOR_ID` operativo. El claim `zone_ids` del JWT web acota ambas dimensiones. |
+
+### 12.2 Fórmula de inventario verificada contra Firebird real
+
+Consulta de evidencia (`localhost:3050`, BD `CHOCOLATES.fdb`) de `SALDOS_IN`:
+
+| Evidencia | Hallazgo |
+|---|---|
+| `20 + 16 = 36` piezas coincide exactamente con los movimientos de `DOCTOS_IN` del mismo periodo | `SALDOS_IN` es un **registro de movimientos mensuales**, no un saldo (no tiene columna de saldo, inicial ni final). |
+| 257 netos negativos y 70 periodos desde 2018 | No es un estado consistente acumulado; es un ledger por mes/artículo/almacén. |
+| `MG_ALM_INVENTARIOS` y `SM_CIERRES_RUTAS_SALDOS` sin datos | No existe inventario físico/final de referencia en la instalación actual. |
+
+Fórmula aprobada para el piloto:
+
+```
+disponible(art, almacén) = Σ(ENTRADAS_UNIDADES − SALIDAS_UNIDADES) histórico  [ledger SALDOS_IN]
+```
+
+- La opción `disponible − vendido` fue **rechazada**: duplica conteo (las ventas del día ya están en `SALIDAS_UNIDADES`).
+- **Validación pendiente de cierre**: 15 artículos/almacenes quedan negativos con la fórmula del ledger. El piloto se entrega con esta marca explícita y se cierra cuando exista un inventario físico de referencia (o cierre de ruta) para calibrar.
+
+### 12.3 Migraciones SQLite versionadas
+
+- El Sincronizador es el único ejecutor de esquema de la BD complementaria (`WebSqliteMigrator`); Laravel no tiene migraciones ni modelos de esas tablas.
+- `schema_version` (versión aplicada), una transacción por migración, respaldo automático previo vía `VACUUM INTO` en `backups/` (no bloquea el arranque si falla) e índices con prefijo `ix_`.
+- La migración v001 crea: `web_users`, `web_zones`, `web_zone_sellers`, `web_notifications`, `web_audit_log`.
+
+### 12.4 Usuario administrador
+
+- Credenciales **solo desde configuración externa** (`WebAuth:AdminUsername` / `WebAuth:AdminPassword`); los valores en `appsettings.json` quedan vacíos y nunca se versionan.
+- Hash PBKDF2-HMAC-SHA256 con 210 000 iteraciones y salt por usuario (`WebPasswordHasher`); verificación a prueba de timing y rotación cuando los parámetros cambian (`NecesitaRehash`).
+- Seed con `must_change_password = 1`: la primera sesión del admin obliga a rotar.
+- Catálogo de roles: `administrador`, `supervisor`, `lector`. El rol `contador` es **reservado y no se emite** (sección 8.1).
+
+### 12.5 Aislamiento de errores web v2
+
+- `WebTraceIdMiddleware` se registra **antes** que `ErrorHandlingMiddleware` en el pipeline; produce `X-Trace-Id` cuando el cliente no lo propaga.
+- `ErrorHandlingMiddleware` ramifica por prefijo: `/api/v2/web/*` → envelope `{code, message, errors, trace_id}`; `/api/v1/*` y `/api/v2/admin/*` conservan su envelope histórico `{mensaje, detalle, categoria, reintentable}` intacto (no se toca el contrato móvil).
+
+### 12.6 Flujo de login Laravel (lado consumidor)
+
+- El login usa el método dedicado `ApiClient::postPublic` (único endpoint público del contrato; sin token) — el resto de llamadas exige token de sesión.
+- **La autenticación nunca usa stubs**: sin Sincronizador accesible, el login responde error funcional y no existe sesión.
+- Token y claims (user, roles, permissions, zone_ids) viven solo en la sesión cifrada de Laravel; `POST /logout` la invalida de inmediato (revocación remota: posterior).
+- Cualquier `401` de la API invalida la sesión en el acto; `auth.session` redirige a `/login` en el siguiente request.
+- `GET /login` y `POST /login` con throttle local `5,1` (rate limit duplicado del Sincronizador); CSRF obligatorio en el formulario.
+
+---
+
 ## Referencias internas verificadas
 
 | Referencia | Evidencia |

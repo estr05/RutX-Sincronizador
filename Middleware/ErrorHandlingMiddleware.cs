@@ -31,7 +31,44 @@ public class ErrorHandlingMiddleware
 
     private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
     {
-        // Errores SQL/Firebird: se clasifican para dar un mensaje accionable en espanol.
+        var (statusCode, mensaje, detalle, categoria, reintentable) = Clasificar(exception);
+
+        // Frontera web v2 (contrato §9.1): envelope { code, message, errors, trace_id }.
+        // Aislada del formato legado; móvil (/api/v1) y administrador local
+        // (/api/v2/admin) conservan { mensaje, detalle, categoria, reintentable }.
+        if (context.Request.Path.StartsWithSegments("/api/v2/web"))
+        {
+            var web = new
+            {
+                code = CodigoWeb(statusCode),
+                message = mensaje,
+                errors = (object?)null,
+                trace_id = context.Items["trace_id"] as string ?? Guid.NewGuid().ToString("N"),
+            };
+
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = statusCode;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(web));
+            return;
+        }
+
+        var legado = new
+        {
+            mensaje,
+            detalle,
+            categoria,
+            reintentable,
+        };
+
+        context.Response.ContentType = "application/json";
+        context.Response.StatusCode = statusCode;
+        await context.Response.WriteAsync(JsonSerializer.Serialize(legado));
+    }
+
+    /// <summary>Clasificación única de excepciones (comportamiento existente, sin cambios).</summary>
+    private static (int Status, string Mensaje, string Detalle, string Categoria, bool Reintentable) Clasificar(Exception exception)
+    {
+        // Errores SQL/Firebird: se clasifican para dar un mensaje accionable en español.
         var sqlError = SqlErrorClassifier.Clasificar(exception);
         if (sqlError.Tipo != SqlErrorTipo.Desconocido)
         {
@@ -46,19 +83,7 @@ public class ErrorHandlingMiddleware
                 SqlErrorTipo.BaseDatosSoloLectura => (int)HttpStatusCode.Forbidden,
                 _ => (int)HttpStatusCode.BadRequest
             };
-
-            var response = new
-            {
-                mensaje = sqlError.MensajeAmigable,
-                detalle = sqlError.Detalle,
-                categoria = sqlError.Tipo.ToString(),
-                reintentable = sqlError.EsReintentable
-            };
-
-            context.Response.ContentType = "application/json";
-            context.Response.StatusCode = statusCode;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(response));
-            return;
+            return (statusCode, sqlError.MensajeAmigable, sqlError.Detalle, sqlError.Tipo.ToString(), sqlError.EsReintentable);
         }
 
         // Resto de excepciones: mapeo de negocio existente.
@@ -75,9 +100,8 @@ public class ErrorHandlingMiddleware
             _ => (int)HttpStatusCode.InternalServerError
         };
 
-        var response2 = new
-        {
-            mensaje = statusCode2 switch
+        return (statusCode2,
+            statusCode2 switch
             {
                 400 => "Solicitud inválida.",
                 404 => "Recurso no encontrado.",
@@ -87,14 +111,21 @@ public class ErrorHandlingMiddleware
                 504 => "El servidor no respondió a tiempo.",
                 _ => "Error interno del servidor."
             },
-            detalle = exception.Message,
-            categoria = "desconocido",
-            reintentable = false
-        };
-
-        context.Response.ContentType = "application/json";
-        context.Response.StatusCode = statusCode2;
-
-        await context.Response.WriteAsync(JsonSerializer.Serialize(response2));
+            exception.Message,
+            "desconocido",
+            false);
     }
+
+    private static string CodigoWeb(int statusCode) => statusCode switch
+    {
+        400 => "BAD_REQUEST",
+        401 => "UNAUTHORIZED",
+        403 => "FORBIDDEN",
+        404 => "NOT_FOUND",
+        409 => "CONFLICT",
+        422 => "VALIDATION_ERROR",
+        503 => "SERVICE_UNAVAILABLE",
+        504 => "GATEWAY_TIMEOUT",
+        _ => "INTERNAL_ERROR",
+    };
 }

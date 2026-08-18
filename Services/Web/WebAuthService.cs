@@ -90,8 +90,8 @@ public sealed class WebAuthService : IWebAuthService
         var userId = principal.FindFirst("user_id")?.Value;
         var username = principal.FindFirst("username")?.Value;
         var displayName = principal.FindFirst("display_name")?.Value ?? username ?? string.Empty;
-        var roles = principal.FindAll("roles").Select(c => c.Value).ToArray();
-        var permisos = principal.FindAll("permissions").Select(c => c.Value).ToArray();
+        var roles = ObtenerClaims("roles", principal);
+        var permisos = ObtenerClaims("permissions", principal);
         var zonas = principal.FindAll("zone_ids").Select(c => int.TryParse(c.Value, out var z) ? z : -1)
             .Where(z => z >= 0).ToArray();
 
@@ -106,6 +106,14 @@ public sealed class WebAuthService : IWebAuthService
     {
         await _store.LogAuditAsync(userId, username, "auth.logout", "cierre de sesion", ipAddress, traceId, cancellationToken);
         _logger.LogInformation("Logout web de '{Username}'", username);
+    }
+
+    private static string[] ObtenerClaims(string tipo, ClaimsPrincipal principal)
+    {
+        var valores = principal.FindAll(tipo).Select(c => c.Value).ToList();
+        if (valores.Count == 0 && tipo == "roles")
+            valores.AddRange(principal.FindAll(ClaimTypes.Role).Select(c => c.Value));
+        return valores.Distinct(StringComparer.Ordinal).ToArray();
     }
 
     private static string[] DeserializarRoles(string rolesJson)

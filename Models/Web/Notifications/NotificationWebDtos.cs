@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Mvc;
+
 namespace Rutx.Sincronizador.Models.Web.Notifications;
 
 /// <summary>
@@ -5,10 +7,10 @@ namespace Rutx.Sincronizador.Models.Web.Notifications;
 /// El alcance por usuario/rol/zona lo aplica el servicio en servidor.
 /// </summary>
 public sealed record NotificationListQuery(
-    int Page = 1,
-    int PerPage = 25,
-    string? Status = null,
-    string? TargetType = null)
+    [FromQuery(Name = "page")] int Page = 1,
+    [FromQuery(Name = "per_page")] int PerPage = 25,
+    [FromQuery(Name = "status")] string? Status = null,
+    [FromQuery(Name = "target_type")] string? TargetType = null)
 {
     public const int MinPage = 1;
     public const int MinPerPage = 1;

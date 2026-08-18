@@ -66,9 +66,9 @@ public sealed class InventoryWebService : IInventoryWebService
             var filas = await conn.QueryAsync<SaldoFila>(
                 new CommandDefinition(
                     """
-                    SELECT s.ARTICULO_ID, a.NOMBRE AS NOMBRE, COALESCE(a.UNIDAD_VENTA, '') AS UNIDAD,
-                           COALESCE(SUM(s.ENTRADAS_UNIDADES), 0) AS ENTRADAS,
-                           COALESCE(SUM(s.SALIDAS_UNIDADES), 0) AS SALIDAS
+                    SELECT s.ARTICULO_ID AS ArticuloId, a.NOMBRE AS Nombre, COALESCE(a.UNIDAD_VENTA, '') AS Unidad,
+                           COALESCE(SUM(s.ENTRADAS_UNIDADES), 0) AS Entradas,
+                           COALESCE(SUM(s.SALIDAS_UNIDADES), 0) AS Salidas
                     FROM SALDOS_IN s
                     LEFT JOIN ARTICULOS a ON a.ARTICULO_ID = s.ARTICULO_ID
                     WHERE s.ALMACEN_ID = @almacen
@@ -185,7 +185,7 @@ public sealed class InventoryWebService : IInventoryWebService
         var filas = await conn.QueryAsync<VentaPeriodoFila>(
             new CommandDefinition(
                 """
-                SELECT s.ARTICULO_ID, COALESCE(SUM(s.SALIDAS_UNIDADES), 0) AS VENDIDO
+                SELECT s.ARTICULO_ID AS ArticuloId, COALESCE(SUM(s.SALIDAS_UNIDADES), 0) AS Vendido
                 FROM SALDOS_IN s
                 WHERE s.ALMACEN_ID = @almacen AND s.ANO = @ano AND s.MES = @mes
                 GROUP BY s.ARTICULO_ID
@@ -211,14 +211,18 @@ public sealed class InventoryWebService : IInventoryWebService
         return (p, pp);
     }
 
-    private sealed record SaldoFila(
-        int ArticuloId,
-        string? Nombre,
-        string Unidad,
-        decimal Entradas,
-        decimal Salidas);
+    private sealed class SaldoFila
+    {
+        public int ArticuloId { get; set; }
+        public string? Nombre { get; set; }
+        public string Unidad { get; set; } = "";
+        public decimal Entradas { get; set; }
+        public decimal Salidas { get; set; }
+    }
 
-    private sealed record VentaPeriodoFila(
-        int ArticuloId,
-        decimal Vendido);
+    private sealed class VentaPeriodoFila
+    {
+        public int ArticuloId { get; set; }
+        public decimal Vendido { get; set; }
+    }
 }

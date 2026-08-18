@@ -36,6 +36,9 @@ public sealed class CustomerWebService : ICustomerWebService
         if (query.ZoneId is int zona && userZoneIds.Count > 0 && !userZoneIds.Contains(zona))
             return WebCustomerResult.Error("FORBIDDEN_ZONE", "La zona solicitada no está dentro de las zonas autorizadas de tu usuario.");
 
+        if (query.Status is not null && !EstatusValido(query.Status))
+            return WebCustomerResult.Error("VALIDATION_ERROR", "status solo admite A o B.");
+
         var connectionString = _configuration.GetConnectionString("FirebirdConnection")
             ?? throw new InvalidOperationException("FirebirdConnection no configurada.");
 
@@ -45,32 +48,38 @@ public sealed class CustomerWebService : ICustomerWebService
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var busqueda = EscapeLike(query.Search.Trim());
-            where.Add("(UPPER(c.NOMBRE) LIKE UPPER($busqueda) OR CAST(c.CLIENTE_ID AS VARCHAR(20)) LIKE $busqueda)");
-            parametros.Add("$busqueda", $"%{busqueda}%");
+            where.Add("(UPPER(c.NOMBRE) LIKE UPPER(@busqueda) OR CAST(c.CLIENTE_ID AS VARCHAR(20)) LIKE @busqueda)");
+            parametros.Add("@busqueda", $"%{busqueda}%");
         }
 
         if (query.ZoneId is int zonaFiltro)
         {
-            where.Add("c.ZONA_CLIENTE_ID = $zona");
-            parametros.Add("$zona", zonaFiltro);
+            where.Add("c.ZONA_CLIENTE_ID = @zona");
+            parametros.Add("@zona", zonaFiltro);
+        }
+        else if (userZoneIds.Count > 0)
+        {
+            where.Add("c.ZONA_CLIENTE_ID IN @zonas");
+            parametros.Add("@zonas", userZoneIds);
         }
 
         if (query.RouteId is int ruta)
         {
-            where.Add("c.VENDEDOR_ID = $ruta");
-            parametros.Add("$ruta", ruta);
+            where.Add("c.VENDEDOR_ID = @ruta");
+            parametros.Add("@ruta", ruta);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Status))
         {
-            where.Add("c.ESTATUS = $estatus");
-            parametros.Add("$estatus", query.Status.Trim());
+            where.Add("c.ESTATUS = @estatus");
+            parametros.Add("@estatus", query.Status.Trim());
         }
 
         var clausulaWhere = where.Count > 0 ? "WHERE " + string.Join(" AND ", where) : "";
         var baseSql = $"""
-            SELECT c.CLIENTE_ID, c.NOMBRE, c.ESTATUS, c.ZONA_CLIENTE_ID, z.NOMBRE AS ZONA_NOMBRE,
-                   c.VENDEDOR_ID, v.NOMBRE AS VENDEDOR_NOMBRE
+            SELECT c.CLIENTE_ID AS ClienteId, c.NOMBRE AS Nombre, c.ESTATUS AS Estatus,
+                   c.ZONA_CLIENTE_ID AS ZonaClienteId, z.NOMBRE AS ZonaNombre,
+                   c.VENDEDOR_ID AS VendedorId, v.NOMBRE AS VendedorNombre
             FROM CLIENTES c
             LEFT JOIN ZONAS_CLIENTES z ON z.ZONA_CLIENTE_ID = c.ZONA_CLIENTE_ID
             LEFT JOIN VENDEDORES v ON v.VENDEDOR_ID = c.VENDEDOR_ID
@@ -82,12 +91,16 @@ public sealed class CustomerWebService : ICustomerWebService
             await using var conn = new FbConnection(connectionString);
 
             var total = await conn.ExecuteScalarAsync<int>(
-                new CommandDefinition($"SELECT COUNT(*) FROM ({baseSql})", parametros, cancellationToken: cancellationToken));
+                new CommandDefinition($"SELECT COUNT(*) FROM ({baseSql}) t", parametros, cancellationToken: cancellationToken));
+
+            var parametrosPaginados = new DynamicParameters(parametros);
+            parametrosPaginados.Add("@inicio", (page - 1) * perPage + 1);
+            parametrosPaginados.Add("@fin", page * perPage);
 
             var filas = await conn.QueryAsync<ClienteFila>(
                 new CommandDefinition(
                     $"{baseSql} ORDER BY c.NOMBRE ASC ROWS @inicio TO @fin",
-                    new { inicio = (page - 1) * perPage + 1, fin = page * perPage },
+                    parametrosPaginados,
                     cancellationToken: cancellationToken));
 
             var items = filas.Select(f => new CustomerListItemDto(
@@ -123,12 +136,17 @@ public sealed class CustomerWebService : ICustomerWebService
     private static string EscapeLike(string valor)
         => valor.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
 
-    private sealed record ClienteFila(
-        int ClienteId,
-        string Nombre,
-        string Estatus,
-        int? ZonaClienteId,
-        string? ZonaNombre,
-        int? VendedorId,
-        string? VendedorNombre);
+    private static bool EstatusValido(string status)
+        => status is "A" or "B";
+
+    private sealed class ClienteFila
+    {
+        public int ClienteId { get; set; }
+        public string Nombre { get; set; } = "";
+        public string Estatus { get; set; } = "";
+        public int? ZonaClienteId { get; set; }
+        public string? ZonaNombre { get; set; }
+        public int? VendedorId { get; set; }
+        public string? VendedorNombre { get; set; }
+    }
 }

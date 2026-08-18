@@ -95,15 +95,32 @@ builder.Logging.AddConsole();
 // EventLog solo existe en Windows; en Linux no hay y lanzaria
 // PlatformNotSupportedException al arrancar. El guard condicional
 // se valida con OperatingSystem.IsWindows() (por eso el pragma).
+// La fuente se registra al arranque; sin permisos de administrador el
+// provider se omite: un LogError NO debe romper requests por el EventLog.
 if (OperatingSystem.IsWindows())
 {
-#pragma warning disable CA1416
-    builder.Logging.AddEventLog(settings =>
+    var eventLogDisponible = false;
+    try
     {
-        settings.SourceName = "RutxSincronizador";
-        settings.LogName = "Sincronizador";
-    });
+        if (!System.Diagnostics.EventLog.SourceExists("RutxSincronizador"))
+            System.Diagnostics.EventLog.CreateEventSource("RutxSincronizador", "Application");
+        eventLogDisponible = true;
+    }
+    catch
+    {
+        Console.Error.WriteLine("[AVISO] Sin permisos para el EventLog de Windows; se omite el log de eventos.");
+    }
+
+    if (eventLogDisponible)
+    {
+#pragma warning disable CA1416
+        builder.Logging.AddEventLog(settings =>
+        {
+            settings.SourceName = "RutxSincronizador";
+            settings.LogName = "Application";
+        });
 #pragma warning restore CA1416
+    }
 }
 builder.Logging.AddProvider(new FileLoggerProvider(logsDir));
 

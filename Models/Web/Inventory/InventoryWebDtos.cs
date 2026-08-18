@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Mvc;
+
 namespace Rutx.Sincronizador.Models.Web.Inventory;
 
 /// <summary>
@@ -7,11 +9,11 @@ namespace Rutx.Sincronizador.Models.Web.Inventory;
 /// real (DOCTOS_PV más reciente) y as_of es el periodo "YYYY-MM" (ISO 8601).
 /// </summary>
 public sealed record InventoryRouteQuery(
-    int Page = 1,
-    int PerPage = 25,
-    int? ZoneId = null,
-    int? RouteId = null,
-    string? AsOf = null)
+    [FromQuery(Name = "page")] int Page = 1,
+    [FromQuery(Name = "per_page")] int PerPage = 25,
+    [FromQuery(Name = "zone_id")] int? ZoneId = null,
+    [FromQuery(Name = "route_id")] int? RouteId = null,
+    [FromQuery(Name = "as_of")] string? AsOf = null)
 {
     public const int MinPage = 1;
     public const int MinPerPage = 1;

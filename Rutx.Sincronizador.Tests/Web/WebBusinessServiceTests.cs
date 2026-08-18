@@ -58,6 +58,37 @@ public class WebBusinessServiceTests
     }
 
     [Fact]
+    public async Task Clientes_ConZonasSinPedirZona_NoBloqueaYConsultaAvanza()
+    {
+        var servicio = CrearClientes();
+
+        // El usuario trae zonas autorizadas pero no filtra por zone_id: la zona
+        // se aplica implícitamente (IN @zonas). Con BD inexistente la consulta
+        // avanza hasta el intento de conexión → API_UNAVAILABLE (no FORBIDDEN_ZONE).
+        var resultado = await servicio.ListAsync(
+            new CustomerListQuery(),
+            new[] { 3792 },
+            CancellationToken.None);
+
+        Assert.False(resultado.IsSuccess);
+        Assert.Equal("API_UNAVAILABLE", resultado.Code);
+    }
+
+    [Fact]
+    public async Task Clientes_EstatusInvalido_DevuelveVALIDATION()
+    {
+        var servicio = CrearClientes();
+
+        var resultado = await servicio.ListAsync(
+            new CustomerListQuery { Status = "ZZZ" },
+            Array.Empty<int>(),
+            CancellationToken.None);
+
+        Assert.False(resultado.IsSuccess);
+        Assert.Equal("VALIDATION_ERROR", resultado.Code);
+    }
+
+    [Fact]
     public async Task Inventario_SinRouteId_DevuelveVALIDATION()
     {
         var servicio = CrearInventario();

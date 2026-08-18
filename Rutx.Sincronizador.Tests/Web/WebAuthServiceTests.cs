@@ -199,7 +199,7 @@ public class WebPermissionHandlerTests
             new Claim("permissions", "customers.read"),
         }, "test"));
 
-        var handler = new WebPermissionHandler();
+        var handler = new WebPermissionHandler(NullLogger<WebPermissionHandler>.Instance);
         var context = new AuthorizationHandlerContext(
             new[] { new WebPermissionRequirement("customers.read") },
             principal,
@@ -220,7 +220,7 @@ public class WebPermissionHandlerTests
             new Claim("rol", "vendedor"),
         }, "test"));
 
-        var handler = new WebPermissionHandler();
+        var handler = new WebPermissionHandler(NullLogger<WebPermissionHandler>.Instance);
         var context = new AuthorizationHandlerContext(
             new[] { new WebPermissionRequirement("customers.read") },
             principal,
@@ -240,7 +240,7 @@ public class WebPermissionHandlerTests
             new Claim("permissions", "reports.read"),
         }, "test"));
 
-        var handler = new WebPermissionHandler();
+        var handler = new WebPermissionHandler(NullLogger<WebPermissionHandler>.Instance);
         var context = new AuthorizationHandlerContext(
             new[] { new WebPermissionRequirement("customers.read") },
             principal,

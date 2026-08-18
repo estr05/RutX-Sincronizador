@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Mvc;
+
 namespace Rutx.Sincronizador.Models.Web.Customers;
 
 /// <summary>
@@ -6,12 +8,12 @@ namespace Rutx.Sincronizador.Models.Web.Customers;
 /// aplicados por el servicio; la autorización de zona vive en el servicio.
 /// </summary>
 public sealed record CustomerListQuery(
-    int Page = 1,
-    int PerPage = 25,
-    string? Search = null,
-    int? ZoneId = null,
-    int? RouteId = null,
-    string? Status = null)
+    [FromQuery(Name = "page")] int Page = 1,
+    [FromQuery(Name = "per_page")] int PerPage = 25,
+    [FromQuery(Name = "search")] string? Search = null,
+    [FromQuery(Name = "zone_id")] int? ZoneId = null,
+    [FromQuery(Name = "route_id")] int? RouteId = null,
+    [FromQuery(Name = "status")] string? Status = null)
 {
     public const int MinPage = 1;
     public const int MinPerPage = 1;

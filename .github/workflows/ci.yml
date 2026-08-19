@@ -1,0 +1,91 @@
+# ============================================================
+# CI — RutX-Sincronizador
+# Ejecuta en cada push y PR hacia fix/sprint4-secrets-firebird y main.
+# Pasos: restore → build → secret-scan → unit tests
+# ============================================================
+name: "Sincronizador CI"
+
+on:
+  push:
+    branches: ["main", "fix/sprint4-secrets-firebird"]
+  pull_request:
+    branches: ["main", "fix/sprint4-secrets-firebird"]
+
+jobs:
+  build-and-test:
+    name: ".NET Build & Test"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # necesario para el escaneo de secretos
+
+      # ── 2. Configurar .NET 10 ─────────────────────────────────────
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      # ── 3. Restaurar dependencias ─────────────────────────────────
+      - name: Restore dependencies
+        run: dotnet restore Rutx.Sincronizador.csproj
+
+      # ── 4. Build (modo Release) ───────────────────────────────────
+      - name: Build (Release)
+        run: dotnet build Rutx.Sincronizador.csproj --configuration Release --no-restore
+
+      # ── 5. Escaneo de secretos hard-codeados ─────────────────────
+      # Detecta patrones de credenciales y keys antes de que lleguen
+      # al artefacto. Falla el pipeline si encuentra hits.
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # requerido solo para repos privados
+        continue-on-error: false
+
+      # ── 6. Escaneo adicional: buscar "masterkey" en código fuente ─
+      - name: Check for hardcoded masterkey in source
+        run: |
+          echo "Buscando 'masterkey' en archivos .cs y .json (excluyendo tests y comentarios de ejemplo)..."
+          # Falla si se encuentra fuera de tests, docs o comentarios de ejemplo
+          found=$(grep -rn --include="*.cs" --include="*.json" \
+            --exclude-dir=".git" \
+            --exclude-dir="Rutx.Sincronizador.Tests" \
+            --exclude-dir="bin" \
+            --exclude-dir="obj" \
+            "masterkey" . 2>/dev/null | \
+            grep -v "//.*masterkey" | \        # excluir comentarios
+            grep -v "// " | \
+            grep -v "appsettings.json" || true)  # appsettings.json usa "" vacío
+          if [ -n "$found" ]; then
+            echo "FALLO: Se encontraron referencias a 'masterkey' en código de producción:"
+            echo "$found"
+            exit 1
+          fi
+          echo "OK: No se encontraron referencias a 'masterkey' en código de producción."
+
+      # ── 7. Ejecutar tests unitarios ───────────────────────────────
+      - name: Run unit tests
+        run: |
+          if [ -d "Rutx.Sincronizador.Tests" ]; then
+            dotnet test Rutx.Sincronizador.Tests \
+              --configuration Release \
+              --logger "console;verbosity=normal" \
+              --results-directory ./TestResults \
+              -- RunConfiguration.TestSessionTimeout=120000
+          else
+            echo "No se encontró el directorio de tests. Omitiendo."
+          fi
+
+      # ── 8. Publicar resultados de tests ──────────────────────────
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-sincronizador
+          path: TestResults/
+          retention-days: 7

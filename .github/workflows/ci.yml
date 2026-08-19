@@ -14,7 +14,10 @@ on:
 jobs:
   build-and-test:
     name: ".NET Build & Test"
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────
@@ -50,23 +53,30 @@ jobs:
       # ── 6. Escaneo adicional: buscar "masterkey" en código fuente ─
       - name: Check for hardcoded masterkey in source
         run: |
-          echo "Buscando 'masterkey' en archivos .cs y .json (excluyendo tests y comentarios de ejemplo)..."
-          # Falla si se encuentra fuera de tests, docs o comentarios de ejemplo
-          found=$(grep -rn --include="*.cs" --include="*.json" \
-            --exclude-dir=".git" \
-            --exclude-dir="Rutx.Sincronizador.Tests" \
-            --exclude-dir="bin" \
-            --exclude-dir="obj" \
-            "masterkey" . 2>/dev/null | \
-            grep -v "//.*masterkey" | \        # excluir comentarios
-            grep -v "// " | \
-            grep -v "appsettings.json" || true)  # appsettings.json usa "" vacío
-          if [ -n "$found" ]; then
-            echo "FALLO: Se encontraron referencias a 'masterkey' en código de producción:"
-            echo "$found"
+          set -euo pipefail
+
+          found="$(
+            grep -RIn --include='*.cs' --include='*.json' \
+              --exclude-dir='.git' \
+              --exclude-dir='bin' \
+              --exclude-dir='obj' \
+              --exclude-dir='Rutx.Sincronizador.Tests' \
+              'masterkey' . 2>/dev/null || true
+          )"
+
+          # Permitir únicamente las apariciones deliberadas del validador que rechaza
+          # masterkey; todo uso operativo debe fallar.
+          found="$(printf '%s\n' "$found" \
+            | grep -v '^./Security/ProductionConfigurationValidator.cs:' \
+            || true)"
+
+          if [[ -n "${found//[[:space:]]/}" ]]; then
+            echo 'FALLO: referencia operativa a masterkey encontrada:'
+            printf '%s\n' "$found"
             exit 1
           fi
-          echo "OK: No se encontraron referencias a 'masterkey' en código de producción."
+
+          echo 'OK: no hay uso operativo de masterkey.'
 
       # ── 7. Ejecutar tests unitarios ───────────────────────────────
       - name: Run unit tests

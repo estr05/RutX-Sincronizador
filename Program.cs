@@ -87,11 +87,45 @@ builder.Host.UseWindowsService(options =>
     options.ServiceName = "RutxSincronizador";
 });
 
-// Binding: localhost por defecto (defensa en profundidad junto al middleware
-// de loopback). En entorno de red, la variable ASPNETCORE_URLS puede
-// sobreescribir este valor, pero el middleware de loopback sigue bloqueando
-// /admin y /api/v2/admin/* desde IPs no-locales.
-builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5047");
+// ----------------------------------------------------------------
+// Configuracion Topologica de Kestrel (Listeners)
+// ----------------------------------------------------------------
+builder.WebHost.ConfigureKestrel((context, options) =>
+{
+    // 1. Listener Local / Administrativo (siempre en loopback)
+    options.ListenLocalhost(5047);
+
+    // 2. Listener Remoto / API (deshabilitado por defecto)
+    var externalEnabled = context.Configuration.GetValue<bool>("Network:ExternalApiEnabled");
+    if (!externalEnabled) return;
+
+    var mode = context.Configuration["Network:ExternalApiMode"];
+    var externalPort = context.Configuration.GetValue<int>("Network:ExternalPort", 5048);
+
+    if (mode == "ReverseProxy")
+    {
+        // Reverse proxy local termina el TLS y pasa el trafico por loopback
+        options.ListenLocalhost(externalPort);
+    }
+    else if (mode == "KestrelHttps")
+    {
+        // Kestrel gestiona el TLS directamente (Requiere certificado PFX configurado)
+        // La configuracion detallada del PFX y contrasena debe venir de appsettings (Kestrel:Endpoints:Https)
+        options.ListenAnyIP(externalPort, listenOptions =>
+        {
+            listenOptions.UseHttps();
+        });
+    }
+    else if (mode == "VPN_Directo")
+    {
+        // Para despliegues VPN puramente de red privada sin terminacion SSL en la maquina
+        options.ListenAnyIP(externalPort);
+    }
+    else
+    {
+        throw new InvalidOperationException($"[SEGURIDAD] Network:ExternalApiMode no soportado o indefinido ('{mode}'). Opciones: ReverseProxy, KestrelHttps, VPN_Directo.");
+    }
+});
 
 // Logging a archivo (ademas de consola en dev)
 builder.Logging.ClearProviders();
@@ -325,34 +359,43 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
-// Frontera web v2: trace_id se propaga ANTES del manejo de errores para que
-// el envelope de error web lo incluya. Móvil y administrador local conservan
-// su formato legado (ErrorHandlingMiddleware ramifica por prefijo /api/v2/web).
+// Frontera web v2: trace_id se propaga ANTES del manejo de errores
 app.UseMiddleware<WebTraceIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
-app.UseStaticFiles(); // Panel de administracion (wwwroot)
 
-// Guardia de loopback: /admin y /api/v2/admin/* solo responden desde localhost.
-// Contrato v2 §4.2: el panel local no debe publicarse al dominio Web-RutX ni a la red.
+// ────────────────────────────────────────────────────────────────────
+// MIDDLEWARE DE SUPERFICIE Y AISLAMIENTO (Cero Mutaciones y Privacidad)
+// ────────────────────────────────────────────────────────────────────
+// IMPORTANTE: Debe ir antes de UseStaticFiles y MapControllers
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path;
-    var isAdminRoute = path.StartsWithSegments("/admin") ||
-                        path.StartsWithSegments("/api/v2/admin");
+    var isAdminRoute = path.StartsWithSegments("/admin") || path.StartsWithSegments("/api/v2/admin");
 
     if (isAdminRoute)
     {
+        // Verificar por puerto físico (5047 es administrativo)
+        if (context.Connection.LocalPort != 5047)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Superficie administrativa bloqueada en puerto remoto." });
+            return;
+        }
+
+        // Además del puerto, verificar que la IP sea loopback estricto
         var remoteIp = context.Connection.RemoteIpAddress;
         if (remoteIp is null || !System.Net.IPAddress.IsLoopback(remoteIp))
         {
-            context.Response.StatusCode = StatusCodes.Status404NotFound;
-            await context.Response.WriteAsJsonAsync(new { error = "not found" });
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Loopback estricto requerido para superficie administrativa." });
             return;
         }
     }
 
     await next();
 });
+
+app.UseStaticFiles(); // Panel de administracion (wwwroot) ahora protegido por el middleware
 
 app.UseRateLimiter();
 app.UseAuthentication();

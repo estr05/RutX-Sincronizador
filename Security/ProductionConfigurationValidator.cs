@@ -32,13 +32,21 @@ namespace Rutx.Sincronizador.Security
                 throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection no puede estar vacia, ni usar contrasenas por defecto ('masterkey') o placeholders (CHANGE_ME) en Produccion.");
             }
 
-            // 3. Validacion TLS para endpoints no locales
-            var urls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? configuration["ASPNETCORE_URLS"] ?? string.Empty;
-            
-            // Si hay listeners configurados y ninguno incluye https, pero estan en interfaces abiertas, abortar
-            if (!string.IsNullOrWhiteSpace(urls) && !urls.Contains("https://", StringComparison.OrdinalIgnoreCase) && !urls.Contains("localhost", StringComparison.OrdinalIgnoreCase) && !urls.Contains("127.0.0.1"))
+            // 3. Validacion TLS y Topologia para puertos expuestos
+            var externalEnabled = configuration.GetValue<bool>("Network:ExternalApiEnabled");
+            if (externalEnabled)
             {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Se ha detectado una configuracion de red insegura. ASPNETCORE_URLS expone la API publicamente sin configuracion TLS/HTTPS.");
+                var mode = configuration["Network:ExternalApiMode"];
+                if (string.IsNullOrWhiteSpace(mode) || (mode != "ReverseProxy" && mode != "KestrelHttps" && mode != "VPN_Directo"))
+                {
+                    throw new InvalidOperationException($"[SEGURIDAD] Arranque abortado: Network:ExternalApiEnabled esta activo, pero el modo ('{mode}') no es valido para produccion. Use ReverseProxy, KestrelHttps o VPN_Directo.");
+                }
+
+                // En modo KestrelHttps, nos aseguramos de que Kestrel:Endpoints:Https este presente para proveer el certificado
+                if (mode == "KestrelHttps" && configuration.GetSection("Kestrel:Endpoints:Https").Exists() == false)
+                {
+                    throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Modo KestrelHttps habilitado pero no se ha provisto configuracion de Kestrel:Endpoints:Https (falta certificado).");
+                }
             }
         }
     }

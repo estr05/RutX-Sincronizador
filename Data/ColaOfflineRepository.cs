@@ -1,100 +1,28 @@
-using Microsoft.Data.Sqlite;
-using Rutx.Sincronizador.Models;
-
 namespace Rutx.Sincronizador.Data;
 
-public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
+using Microsoft.Data.Sqlite;
+using Rutx.Sincronizador.Models;
+using Rutx.Sincronizador.Data.Sqlite;
+
+public class ColaOfflineRepository : IColaOfflineRepository
 {
-    private readonly string _connectionString;
-    private SqliteConnection? _conexionCompartida;
-    private readonly bool _esCompartida;
-    private bool _inicializado;
+    private readonly ISqliteConnectionFactory _connectionFactory;
 
-    public ColaOfflineRepository(string connectionString)
+    public ColaOfflineRepository(ISqliteConnectionFactory connectionFactory)
     {
-        _connectionString = connectionString;
-    }
-
-    public ColaOfflineRepository(SqliteConnection connection)
-    {
-        _conexionCompartida = connection;
-        _connectionString = connection.ConnectionString;
-        _esCompartida = true;
-    }
-
-    private async Task<SqliteConnection> AbrirConexionAsync()
-    {
-        SqliteConnection conn;
-        if (_conexionCompartida != null)
-        {
-            conn = _conexionCompartida;
-            if (conn.State != System.Data.ConnectionState.Open)
-                await conn.OpenAsync();
-        }
-        else
-        {
-            conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync();
-        }
-
-        if (!_inicializado)
-        {
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                CREATE TABLE IF NOT EXISTS ColaOperaciones (
-                    Id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                    OperacionId         TEXT    NOT NULL UNIQUE,
-                    TipoOperacion       TEXT    NOT NULL,
-                    Payload             TEXT    NOT NULL,
-                    Estado              TEXT    NOT NULL DEFAULT 'PENDIENTE',
-                    Intentos            INTEGER NOT NULL DEFAULT 0,
-                    MaxIntentos         INTEGER NOT NULL DEFAULT 5,
-                    SiguienteReintento  TEXT    NOT NULL,
-                    ErrorUltimoIntento  TEXT,
-                    FechaCreacion       TEXT    NOT NULL,
-                    FechaModificacion   TEXT    NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS IX_ColaOperaciones_Estado ON ColaOperaciones(Estado);
-                CREATE INDEX IF NOT EXISTS IX_ColaOperaciones_SiguienteReintento ON ColaOperaciones(SiguienteReintento);
-                CREATE TABLE IF NOT EXISTS VentasSincronizadas (
-                    VentaMovilId    TEXT PRIMARY KEY,
-                    DoctoPvId       INTEGER,
-                    Folio           TEXT,
-                    Estado          TEXT NOT NULL DEFAULT 'PROCESANDO',
-                    FechaCreacion   TEXT NOT NULL
-                );";
-            cmd.ExecuteNonQuery();
-            _inicializado = true;
-        }
-        return conn;
+        _connectionFactory = connectionFactory;
     }
 
     private async Task<T> EjecutarAsync<T>(Func<SqliteConnection, Task<T>> accion)
     {
-        var conn = await AbrirConexionAsync();
-        try
-        {
-            return await accion(conn);
-        }
-        finally
-        {
-            if (!_esCompartida)
-                await conn.DisposeAsync();
-        }
+        await using var conn = await _connectionFactory.CreateConnectionAsync();
+        return await accion(conn);
     }
 
     private async Task EjecutarAsync(Func<SqliteConnection, Task> accion)
     {
-        var conn = await AbrirConexionAsync();
-        try
-        {
-            await accion(conn);
-        }
-        finally
-        {
-            if (!_esCompartida)
-                await conn.DisposeAsync();
-        }
+        await using var conn = await _connectionFactory.CreateConnectionAsync();
+        await accion(conn);
     }
 
     public async Task<ColaOperacion> InsertarAsync(ColaOperacion operacion)
@@ -103,8 +31,8 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                INSERT INTO ColaOperaciones (OperacionId, TipoOperacion, Payload, Estado, Intentos, MaxIntentos, SiguienteReintento, ErrorUltimoIntento, FechaCreacion, FechaModificacion)
-                VALUES (@OperacionId, @TipoOperacion, @Payload, @Estado, @Intentos, @MaxIntentos, @SiguienteReintento, @ErrorUltimoIntento, @FechaCreacion, @FechaModificacion);
+                INSERT INTO rutx_cola_operaciones (operacion_id, tipo_operacion, payload, estado, intentos, max_intentos, siguiente_reintento, error_ultimo_intento, fecha_creacion, fecha_modificacion, lease_until, dead_letter)
+                VALUES (@OperacionId, @TipoOperacion, @Payload, @Estado, @Intentos, @MaxIntentos, @SiguienteReintento, @ErrorUltimoIntento, @FechaCreacion, @FechaModificacion, @LeaseUntil, @DeadLetter);
                 SELECT last_insert_rowid();";
 
             cmd.Parameters.AddWithValue("@OperacionId", operacion.OperacionId);
@@ -117,6 +45,8 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
             cmd.Parameters.AddWithValue("@ErrorUltimoIntento", operacion.ErrorUltimoIntento ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@FechaCreacion", operacion.FechaCreacion.ToString("O"));
             cmd.Parameters.AddWithValue("@FechaModificacion", operacion.FechaModificacion.ToString("O"));
+            cmd.Parameters.AddWithValue("@LeaseUntil", operacion.LeaseUntil?.ToString("O") ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@DeadLetter", operacion.DeadLetter ? 1 : 0);
 
             var id = await cmd.ExecuteScalarAsync();
             operacion.Id = Convert.ToInt32(id);
@@ -129,7 +59,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         return await EjecutarAsync(async conn =>
         {
             var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT * FROM ColaOperaciones WHERE OperacionId = @OperacionId";
+            cmd.CommandText = "SELECT * FROM rutx_cola_operaciones WHERE operacion_id = @OperacionId";
             cmd.Parameters.AddWithValue("@OperacionId", operacionId);
 
             using var reader = await cmd.ExecuteReaderAsync();
@@ -144,27 +74,14 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
     {
         return await EjecutarAsync(async conn =>
         {
-            // Operaciones PROCESANDO "colgadas": si el proceso murio a mitad del
-            // procesamiento, el estado quedo en PROCESANDO para siempre y nunca
-            // se reintentaba. Se liberan (vuelven a PENDIENTE) tras un umbral
-            // de inactividad, mismo criterio que VentasSincronizadas (2 min).
-            var liberar = conn.CreateCommand();
-            liberar.CommandText = @"
-                UPDATE ColaOperaciones
-                SET Estado = 'PENDIENTE',
-                    SiguienteReintento = @Ahora,
-                    FechaModificacion = @Ahora
-                WHERE Estado = 'PROCESANDO'
-                  AND FechaModificacion <= @UmbralColgado";
-            liberar.Parameters.AddWithValue("@Ahora", DateTime.UtcNow.ToString("O"));
-            liberar.Parameters.AddWithValue("@UmbralColgado", DateTime.UtcNow.AddMinutes(-2).ToString("O"));
-            await liberar.ExecuteNonQueryAsync();
-
             var cmd = conn.CreateCommand();
+            // Implementacion de captura atómica guiada por Fase D del plan: 
+            // no lo hacemos en el GET, lo haremos en un metodo especial de reclamacion (Lease) o en el worker directamente.
+            // Para mantener compatibilidad con el worker anterior, retornamos los pendientes:
             cmd.CommandText = @"
-                SELECT * FROM ColaOperaciones
-                WHERE Estado = 'PENDIENTE' AND SiguienteReintento <= @Ahora
-                ORDER BY FechaCreacion ASC
+                SELECT * FROM rutx_cola_operaciones
+                WHERE estado = 'PENDIENTE' AND siguiente_reintento <= @Ahora AND dead_letter = 0
+                ORDER BY fecha_creacion ASC
                 LIMIT @Limite";
             cmd.Parameters.AddWithValue("@Ahora", DateTime.UtcNow.ToString("O"));
             cmd.Parameters.AddWithValue("@Limite", limite);
@@ -178,15 +95,76 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         });
     }
 
+    public async Task<List<ColaOperacion>> ReclamarPendientesAsync(int limite = 10, TimeSpan? leaseDuration = null)
+    {
+        return await EjecutarAsync(async conn =>
+        {
+            var ahora = DateTime.UtcNow;
+            var leaseUntil = ahora.Add(leaseDuration ?? TimeSpan.FromMinutes(2));
+            var ahoraStr = ahora.ToString("O");
+            var leaseUntilStr = leaseUntil.ToString("O");
+
+            await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync();
+
+            var cmdSelect = conn.CreateCommand();
+            cmdSelect.Transaction = tx;
+            // Selecciona operaciones pendientes o aquellas cuyo lease expiró
+            cmdSelect.CommandText = @"
+                SELECT * FROM rutx_cola_operaciones
+                WHERE estado = 'PENDIENTE' 
+                  AND dead_letter = 0
+                  AND siguiente_reintento <= @Ahora
+                  AND (lease_until IS NULL OR lease_until <= @Ahora)
+                ORDER BY fecha_creacion ASC
+                LIMIT @Limite";
+            cmdSelect.Parameters.AddWithValue("@Ahora", ahoraStr);
+            cmdSelect.Parameters.AddWithValue("@Limite", limite);
+
+            var operaciones = new List<ColaOperacion>();
+            using (var reader = await cmdSelect.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    operaciones.Add(MapearOperacion(reader));
+                }
+            }
+
+            if (operaciones.Count > 0)
+            {
+                var cmdUpdate = conn.CreateCommand();
+                cmdUpdate.Transaction = tx;
+                var ids = string.Join(",", operaciones.Select(o => o.Id));
+                cmdUpdate.CommandText = $@"
+                    UPDATE rutx_cola_operaciones
+                    SET lease_until = @LeaseUntil, fecha_modificacion = @Ahora
+                    WHERE id IN ({ids})";
+                cmdUpdate.Parameters.AddWithValue("@LeaseUntil", leaseUntilStr);
+                cmdUpdate.Parameters.AddWithValue("@Ahora", ahoraStr);
+                await cmdUpdate.ExecuteNonQueryAsync();
+
+                // Actualizar los objetos en memoria
+                foreach (var op in operaciones)
+                {
+                    op.LeaseUntil = leaseUntil;
+                    op.FechaModificacion = ahora;
+                }
+            }
+
+            await tx.CommitAsync();
+
+            return operaciones;
+        });
+    }
+
     public async Task<List<ColaOperacion>> ObtenerPorEstadoAsync(EstadoOperacion estado, int limite = 100)
     {
         return await EjecutarAsync(async conn =>
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT * FROM ColaOperaciones
-                WHERE Estado = @Estado
-                ORDER BY FechaCreacion DESC
+                SELECT * FROM rutx_cola_operaciones
+                WHERE estado = @Estado AND dead_letter = 0
+                ORDER BY fecha_creacion DESC
                 LIMIT @Limite";
             cmd.Parameters.AddWithValue("@Estado", estado.ToString());
             cmd.Parameters.AddWithValue("@Limite", limite);
@@ -207,11 +185,11 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                UPDATE ColaOperaciones
-                SET Estado = @Estado, Intentos = @Intentos, MaxIntentos = @MaxIntentos,
-                    SiguienteReintento = @SiguienteReintento, ErrorUltimoIntento = @ErrorUltimoIntento,
-                    FechaModificacion = @FechaModificacion
-                WHERE OperacionId = @OperacionId";
+                UPDATE rutx_cola_operaciones
+                SET estado = @Estado, intentos = @Intentos, max_intentos = @MaxIntentos,
+                    siguiente_reintento = @SiguienteReintento, error_ultimo_intento = @ErrorUltimoIntento,
+                    fecha_modificacion = @FechaModificacion, lease_until = @LeaseUntil, dead_letter = @DeadLetter
+                WHERE operacion_id = @OperacionId";
 
             cmd.Parameters.AddWithValue("@OperacionId", operacion.OperacionId);
             cmd.Parameters.AddWithValue("@Estado", operacion.Estado.ToString());
@@ -220,6 +198,8 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
             cmd.Parameters.AddWithValue("@SiguienteReintento", operacion.SiguienteReintento.ToString("O"));
             cmd.Parameters.AddWithValue("@ErrorUltimoIntento", operacion.ErrorUltimoIntento ?? (object)DBNull.Value);
             cmd.Parameters.AddWithValue("@FechaModificacion", operacion.FechaModificacion.ToString("O"));
+            cmd.Parameters.AddWithValue("@LeaseUntil", operacion.LeaseUntil?.ToString("O") ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@DeadLetter", operacion.DeadLetter ? 1 : 0);
 
             await cmd.ExecuteNonQueryAsync();
         });
@@ -231,11 +211,13 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                UPDATE ColaOperaciones
-                SET FechaModificacion = @Ahora
-                WHERE OperacionId = @OperacionId AND Estado = 'PROCESANDO'";
+                UPDATE rutx_cola_operaciones
+                SET fecha_modificacion = @Ahora, lease_until = @Lease
+                WHERE operacion_id = @OperacionId AND estado = 'PROCESANDO'";
             cmd.Parameters.AddWithValue("@OperacionId", operacionId);
-            cmd.Parameters.AddWithValue("@Ahora", DateTime.UtcNow.ToString("O"));
+            var ahora = DateTime.UtcNow;
+            cmd.Parameters.AddWithValue("@Ahora", ahora.ToString("O"));
+            cmd.Parameters.AddWithValue("@Lease", ahora.AddMinutes(2).ToString("O"));
             await cmd.ExecuteNonQueryAsync();
         });
     }
@@ -245,7 +227,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         await EjecutarAsync(async conn =>
         {
             var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM ColaOperaciones WHERE OperacionId = @OperacionId";
+            cmd.CommandText = "DELETE FROM rutx_cola_operaciones WHERE operacion_id = @OperacionId";
             cmd.Parameters.AddWithValue("@OperacionId", operacionId);
             await cmd.ExecuteNonQueryAsync();
         });
@@ -256,7 +238,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         return await EjecutarAsync(async conn =>
         {
             var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT COUNT(*) FROM ColaOperaciones WHERE Estado = @Estado";
+            cmd.CommandText = "SELECT COUNT(*) FROM rutx_cola_operaciones WHERE estado = @Estado";
             cmd.Parameters.AddWithValue("@Estado", estado.ToString());
             return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         });
@@ -269,8 +251,8 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
             var cmd = conn.CreateCommand();
             var escaped = idempotencia.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
             cmd.CommandText = @"
-                SELECT * FROM ColaOperaciones
-                WHERE TipoOperacion = @Tipo AND Payload LIKE @Idempotencia ESCAPE '\' AND Estado IN ('COMPLETADO', 'PENDIENTE', 'PROCESANDO')
+                SELECT * FROM rutx_cola_operaciones
+                WHERE tipo_operacion = @Tipo AND payload LIKE @Idempotencia ESCAPE '\' AND estado IN ('COMPLETADO', 'PENDIENTE', 'PROCESANDO')
                 LIMIT 1";
             cmd.Parameters.AddWithValue("@Tipo", tipo.ToString());
             cmd.Parameters.AddWithValue("@Idempotencia", $"%{escaped}%");
@@ -289,8 +271,8 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT VentaMovilId, DoctoPvId, Folio, Estado, FechaCreacion
-                FROM VentasSincronizadas WHERE VentaMovilId = @VentaMovilId";
+                SELECT venta_movil_id, docto_pv_id, folio, estado, fecha_creacion
+                FROM rutx_ventas_sincronizadas WHERE venta_movil_id = @VentaMovilId";
             cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
 
             using var reader = await cmd.ExecuteReaderAsync();
@@ -299,8 +281,6 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
 
             var venta = MapearVentaSincronizada(reader);
 
-            // Marcador PROCESANDO "colgado" (proceso murio a mitad de la
-            // venta): se libera para que el reintento pueda volver a intentar.
             if (venta.Estado == "PROCESANDO")
             {
                 var ahora = DateTime.UtcNow;
@@ -320,7 +300,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
     {
         var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-            SELECT FechaCreacion FROM VentasSincronizadas WHERE VentaMovilId = @VentaMovilId";
+            SELECT fecha_creacion FROM rutx_ventas_sincronizadas WHERE venta_movil_id = @VentaMovilId";
         cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
         var result = await cmd.ExecuteScalarAsync();
         return result is string s ? DateTime.Parse(s) : null;
@@ -332,7 +312,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                INSERT OR IGNORE INTO VentasSincronizadas (VentaMovilId, DoctoPvId, Folio, Estado, FechaCreacion)
+                INSERT OR IGNORE INTO rutx_ventas_sincronizadas (venta_movil_id, docto_pv_id, folio, estado, fecha_creacion)
                 VALUES (@VentaMovilId, NULL, NULL, 'PROCESANDO', @FechaCreacion)";
             cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
             cmd.Parameters.AddWithValue("@FechaCreacion", DateTime.UtcNow.ToString("O"));
@@ -347,9 +327,9 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         {
             var cmd = conn.CreateCommand();
             cmd.CommandText = @"
-                UPDATE VentasSincronizadas
-                SET DoctoPvId = @DoctoPvId, Folio = @Folio, Estado = 'COMPLETADO'
-                WHERE VentaMovilId = @VentaMovilId";
+                UPDATE rutx_ventas_sincronizadas
+                SET docto_pv_id = @DoctoPvId, folio = @Folio, estado = 'COMPLETADO'
+                WHERE venta_movil_id = @VentaMovilId";
             cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
             cmd.Parameters.AddWithValue("@DoctoPvId", doctoPvId);
             cmd.Parameters.AddWithValue("@Folio", folio);
@@ -363,7 +343,7 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
         await EjecutarAsync(async conn =>
         {
             var cmd = conn.CreateCommand();
-            cmd.CommandText = "DELETE FROM VentasSincronizadas WHERE VentaMovilId = @VentaMovilId";
+            cmd.CommandText = "DELETE FROM rutx_ventas_sincronizadas WHERE venta_movil_id = @VentaMovilId";
             cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
             await cmd.ExecuteNonQueryAsync();
         });
@@ -373,13 +353,13 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
     {
         return new VentaSincronizada
         {
-            VentaMovilId = reader.GetString(reader.GetOrdinal("VentaMovilId")),
-            DoctoPvId = reader.IsDBNull(reader.GetOrdinal("DoctoPvId"))
-                ? null : reader.GetInt32(reader.GetOrdinal("DoctoPvId")),
-            Folio = reader.IsDBNull(reader.GetOrdinal("Folio"))
-                ? null : reader.GetString(reader.GetOrdinal("Folio")),
-            Estado = reader.GetString(reader.GetOrdinal("Estado")),
-            FechaCreacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("FechaCreacion")))
+            VentaMovilId = reader.GetString(reader.GetOrdinal("venta_movil_id")),
+            DoctoPvId = reader.IsDBNull(reader.GetOrdinal("docto_pv_id"))
+                ? null : reader.GetInt32(reader.GetOrdinal("docto_pv_id")),
+            Folio = reader.IsDBNull(reader.GetOrdinal("folio"))
+                ? null : reader.GetString(reader.GetOrdinal("folio")),
+            Estado = reader.GetString(reader.GetOrdinal("estado")),
+            FechaCreacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("fecha_creacion")))
         };
     }
 
@@ -387,23 +367,19 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
     {
         return new ColaOperacion
         {
-            Id = reader.GetInt32(reader.GetOrdinal("Id")),
-            OperacionId = reader.GetString(reader.GetOrdinal("OperacionId")),
-            TipoOperacion = Enum.Parse<TipoOperacion>(reader.GetString(reader.GetOrdinal("TipoOperacion"))),
-            Payload = reader.GetString(reader.GetOrdinal("Payload")),
-            Estado = Enum.Parse<EstadoOperacion>(reader.GetString(reader.GetOrdinal("Estado"))),
-            Intentos = reader.GetInt32(reader.GetOrdinal("Intentos")),
-            MaxIntentos = reader.GetInt32(reader.GetOrdinal("MaxIntentos")),
-            SiguienteReintento = DateTime.Parse(reader.GetString(reader.GetOrdinal("SiguienteReintento"))),
-            ErrorUltimoIntento = reader.IsDBNull(reader.GetOrdinal("ErrorUltimoIntento")) ? null : reader.GetString(reader.GetOrdinal("ErrorUltimoIntento")),
-            FechaCreacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("FechaCreacion"))),
-            FechaModificacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("FechaModificacion")))
+            Id = reader.GetInt32(reader.GetOrdinal("id")),
+            OperacionId = reader.GetString(reader.GetOrdinal("operacion_id")),
+            TipoOperacion = Enum.Parse<TipoOperacion>(reader.GetString(reader.GetOrdinal("tipo_operacion"))),
+            Payload = reader.GetString(reader.GetOrdinal("payload")),
+            Estado = Enum.Parse<EstadoOperacion>(reader.GetString(reader.GetOrdinal("estado"))),
+            Intentos = reader.GetInt32(reader.GetOrdinal("intentos")),
+            MaxIntentos = reader.GetInt32(reader.GetOrdinal("max_intentos")),
+            SiguienteReintento = DateTime.Parse(reader.GetString(reader.GetOrdinal("siguiente_reintento"))),
+            ErrorUltimoIntento = reader.IsDBNull(reader.GetOrdinal("error_ultimo_intento")) ? null : reader.GetString(reader.GetOrdinal("error_ultimo_intento")),
+            FechaCreacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("fecha_creacion"))),
+            FechaModificacion = DateTime.Parse(reader.GetString(reader.GetOrdinal("fecha_modificacion"))),
+            LeaseUntil = reader.IsDBNull(reader.GetOrdinal("lease_until")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("lease_until"))),
+            DeadLetter = reader.GetInt32(reader.GetOrdinal("dead_letter")) != 0
         };
-    }
-
-    public void Dispose()
-    {
-        _conexionCompartida?.Dispose();
-        _conexionCompartida = null;
     }
 }

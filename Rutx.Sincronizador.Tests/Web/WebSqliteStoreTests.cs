@@ -19,7 +19,8 @@ public class WebSqliteStoreTests
         var dir = Path.Combine(Path.GetTempPath(), "rutx-web-store", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var db = Path.Combine(dir, "web.db");
-        var store = new WebSqliteStore($"Data Source={db}", NullLogger<WebSqliteStore>.Instance);
+        var factory = new Rutx.Sincronizador.Tests.Helpers.MockSqliteConnectionFactory($"Data Source={db}");
+        var store = new WebSqliteStore(factory, NullLogger<WebSqliteStore>.Instance);
         return (store, db);
     }
 

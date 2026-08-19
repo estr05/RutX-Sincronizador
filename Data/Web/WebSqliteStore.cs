@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Rutx.Sincronizador.Data.Sqlite;
 using Rutx.Sincronizador.Security;
 using Rutx.Sincronizador.Services.Web;
 
@@ -13,24 +14,24 @@ namespace Rutx.Sincronizador.Data.Web;
 /// </summary>
 public sealed class WebSqliteStore : IWebSqliteStore
 {
-    private readonly string _connectionString;
+    private readonly ISqliteConnectionFactory _connectionFactory;
     private readonly ILogger<WebSqliteStore> _logger;
 
-    public WebSqliteStore(string connectionString, ILogger<WebSqliteStore> logger)
+    public WebSqliteStore(ISqliteConnectionFactory connectionFactory, ILogger<WebSqliteStore> logger)
     {
-        _connectionString = connectionString;
+        _connectionFactory = connectionFactory;
         _logger = logger;
     }
 
     public async Task<int> EnsureSchemaAsync(CancellationToken cancellationToken = default)
     {
-        var migrator = new WebSqliteMigrator(_connectionString, logger: _logger);
+        var migrator = new WebSqliteMigrator(_connectionFactory.ConnectionString, logger: _logger);
         return await migrator.ApplyAsync(cancellationToken);
     }
 
     public async Task<int> SchemaVersionAsync(CancellationToken cancellationToken = default)
     {
-        var migrator = new WebSqliteMigrator(_connectionString, logger: _logger);
+        var migrator = new WebSqliteMigrator(_connectionFactory.ConnectionString, logger: _logger);
         return await migrator.VersionVigenteAsync(cancellationToken);
     }
 
@@ -428,6 +429,7 @@ public sealed class WebSqliteStore : IWebSqliteStore
     public async Task<NoSaleOperationRow> CreateOrGetNoSaleOperationAsync(
         string ventaMovilId, string requestHash,
         int vendedorId, int clienteId, int causaId, string fechaHora,
+        string? payloadJson = null, string? sessionJson = null,
         CancellationToken ct = default)
     {
         var ahora = DateTime.UtcNow.ToString("o");
@@ -447,9 +449,9 @@ public sealed class WebSqliteStore : IWebSqliteStore
         ins.CommandText = """
             INSERT OR IGNORE INTO rutx_no_sale_operations
                 (venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
-                 fecha_hora, status, attempts, created_at, updated_at)
+                 fecha_hora, status, attempts, created_at, updated_at, payload_json, session_json)
             VALUES
-                ($vmid, $hash, $vid, $cid, $causaId, $fh, 'received', 0, $now, $now);
+                ($vmid, $hash, $vid, $cid, $causaId, $fh, 'pending', 0, $now, $now, $payload, $session);
             """;
         ins.Parameters.AddWithValue("$vmid",   ventaMovilId);
         ins.Parameters.AddWithValue("$hash",   requestHash);
@@ -458,6 +460,8 @@ public sealed class WebSqliteStore : IWebSqliteStore
         ins.Parameters.AddWithValue("$causaId", causaId);
         ins.Parameters.AddWithValue("$fh",     fechaHora);
         ins.Parameters.AddWithValue("$now",    ahora);
+        ins.Parameters.AddWithValue("$payload", (object?)payloadJson ?? DBNull.Value);
+        ins.Parameters.AddWithValue("$session", (object?)sessionJson ?? DBNull.Value);
         await ins.ExecuteNonQueryAsync(ct);
 
         // SELECT la fila existente o recién creada
@@ -521,7 +525,7 @@ public sealed class WebSqliteStore : IWebSqliteStore
 
             SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
                    fecha_hora, docto_pv_id, folio, foto_file_id,
-                   status, attempts, error_code, error_message, created_at, updated_at
+                   status, attempts, error_code, error_message, created_at, updated_at, payload_json, session_json
             FROM rutx_no_sale_operations
             WHERE id = $id
             LIMIT 1;
@@ -617,9 +621,7 @@ public sealed class WebSqliteStore : IWebSqliteStore
 
     private async Task<SqliteConnection> AbrirAsync(CancellationToken cancellationToken)
     {
-        var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken);
-        return conn;
+        return await _connectionFactory.CreateConnectionAsync(cancellationToken);
     }
 
     private static WebUserRow LeerUsuario(SqliteDataReader reader) => new(
@@ -648,6 +650,36 @@ public sealed class WebSqliteStore : IWebSqliteStore
         reader.IsDBNull(9) ? null : reader.GetString(9),
         reader.IsDBNull(10) ? null : reader.GetString(10),
         reader.GetString(11));
+
+    public async Task<List<NoSaleOperationRow>> ObtenerNoVentasParaReintentoAsync(
+        int maxIntentos = 5,
+        int limite = 10,
+        CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                   fecha_hora, docto_pv_id, folio, foto_file_id,
+                   status, attempts, error_code, error_message, created_at, updated_at
+            FROM rutx_no_sale_operations
+            WHERE status IN ('pending', 'media_staged', 'media_promotion_pending', 'retryable_failed')
+              AND attempts < $maxIntentos
+            ORDER BY updated_at ASC
+            LIMIT $limite;
+            """;
+        cmd.Parameters.AddWithValue("$maxIntentos", maxIntentos);
+        cmd.Parameters.AddWithValue("$limite", limite);
+
+        var resultados = new List<NoSaleOperationRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            resultados.Add(LeerNoSaleOperation(reader));
+        }
+
+        return resultados;
+    }
 
     private static NoSaleOperationRow LeerNoSaleOperation(SqliteDataReader r) => new(
         r.GetInt64(0),

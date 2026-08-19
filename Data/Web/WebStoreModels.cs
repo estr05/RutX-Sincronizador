@@ -68,7 +68,9 @@ public sealed record NoSaleOperationRow(
     string? ErrorCode,
     string? ErrorMessage,
     string CreatedAt,
-    string UpdatedAt);
+    string UpdatedAt,
+    string? PayloadJson = null,
+    string? SessionJson = null);
 
 /// <summary>
 /// Archivo multimedia registrado en BD/C (tabla rutx_media_files).

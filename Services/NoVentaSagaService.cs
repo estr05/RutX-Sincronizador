@@ -16,8 +16,8 @@
 //   8. Retornar NoVentaPvResponseDto.
 //
 // Recuperación por estado existente:
-//   media_staged       → intentar pasos 6-8 (foto ya existe en staging).
-//   firebird_committed → intentar pasos 7-8 (Firebird ya comprometido).
+//   MEDIA_SYNCED → intentar pasos 6-8 (foto ya existe en staging).
+//   DB_SYNCED    → intentar pasos 7-8 (Firebird ya comprometido).
 // ============================================================================
 
 using System.Security.Cryptography;
@@ -64,12 +64,54 @@ public sealed class NoVentaSagaService : INoVentaSagaService
         _logger      = logger      ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    public async Task ProcesarReintentosAsync(CancellationToken ct = default)
+    {
+        var pendientes = await _store.ObtenerNoVentasParaReintentoAsync(maxIntentos: 5, limite: 10, ct: ct);
+        foreach (var op in pendientes)
+        {
+            if (op.PayloadJson == null || op.SessionJson == null)
+            {
+                await _store.UpdateNoSaleOperationAsync(op.Id, "permanently_failed", errorMessage: "Payload o sesion faltante para reintento", ct: ct);
+                continue;
+            }
+
+            try
+            {
+                var dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(op.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var sesion = JsonSerializer.Deserialize<UsuarioSesion>(op.SessionJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                
+                if (dto == null || sesion == null)
+                    throw new Exception("Deserialización nula");
+
+                await ReanudarSagaAsync(op, foto: null, fotoExtension: null, dto, sesion, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[Saga] Error al procesar reintento para operación {OpId}", op.Id);
+                var nuevoStatus = (op.Attempts + 1 >= 5) ? "dead_letter" : "retryable_failed";
+                await _store.UpdateNoSaleOperationAsync(op.Id, nuevoStatus, errorMessage: ex.Message, ct: ct);
+            }
+        }
+    }
+
     public async Task<NoVentaPvResponseDto> RegistrarAsync(
         UsuarioSesion sesion, NoVentaPvFormDto form, CancellationToken ct = default)
     {
-        // ── PASO 1: Validaciones de entrada ──────────────────────────────────
-        if (string.IsNullOrWhiteSpace(form.VentaMovilId))
-            throw new ArgumentException("venta_movil_id es obligatorio.");
+        // ── PASO 1: Validaciones y Deserialización JSON ───────────────────────
+        if (string.IsNullOrWhiteSpace(form.PayloadJson))
+            throw new ArgumentException("El payload JSON es obligatorio.");
+
+        NoVentaPvCreateDto? dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(form.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (dto == null || string.IsNullOrWhiteSpace(dto.VentaMovilId))
+                throw new Exception("El payload no contiene venta_movil_id.");
+        }
+        catch (Exception ex)
+        {
+            throw new ArgumentException($"Error al procesar el payload JSON: {ex.Message}");
+        }
 
         IFormFile? foto = form.Foto;
         string? fotoHash = null;
@@ -88,46 +130,44 @@ public sealed class NoVentaSagaService : INoVentaSagaService
 
             fotoExtension = ExtensionPorMime.GetValueOrDefault(fotoMime, "jpg");
 
-            // Pre-calcular hash del contenido de la foto para el request_hash
             using var ms = new MemoryStream();
             await foto.OpenReadStream().CopyToAsync(ms, ct);
             fotoHash = Convert.ToHexString(SHA256.HashData(ms.ToArray())).ToLowerInvariant();
         }
 
         // ── PASO 2: Calcular request_hash ────────────────────────────────────
-        var requestHash = CalcularRequestHash(form, fotoHash, fotoMime);
+        // El hash se calcula con el JSON crudo + el hash de la foto
+        var requestHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(form.PayloadJson + (fotoHash ?? "")))).ToLowerInvariant();
 
         // ── PASO 3: Verificar idempotencia ───────────────────────────────────
-        var operacionExistente = await _store.FindNoSaleOperationAsync(form.VentaMovilId, ct);
+        var operacionExistente = await _store.FindNoSaleOperationAsync(dto.VentaMovilId, ct);
         if (operacionExistente != null)
         {
             if (operacionExistente.RequestHash != requestHash)
             {
                 _logger.LogWarning(
                     "[Saga] Conflicto de hash para venta_movil_id={VentaMovilId}: hash existente={HashExistente}, nuevo={HashNuevo}",
-                    form.VentaMovilId, operacionExistente.RequestHash, requestHash);
+                    dto.VentaMovilId, operacionExistente.RequestHash, requestHash);
                 throw new InvalidOperationException(
-                    $"Ya existe una no-venta con venta_movil_id='{form.VentaMovilId}' pero con datos distintos. " +
-                    "No se puede registrar un payload diferente para el mismo id móvil.");
+                    $"Ya existe una no-venta con venta_movil_id='{dto.VentaMovilId}' pero con datos distintos.");
             }
-
-            // Mismo hash: reanudar o retornar resultado completado
-            return await ReanudarSagaAsync(operacionExistente, foto, fotoExtension, form, sesion, ct);
+            return await ReanudarSagaAsync(operacionExistente, foto, fotoExtension, dto, sesion, ct);
         }
 
-        // ── PASO 4: Crear operación con estado 'received' ────────────────────
+        // ── PASO 4: Crear operación con estado 'PENDING' ──────────────────────
+        var sessionJson = JsonSerializer.Serialize(sesion);
         var op = await _store.CreateOrGetNoSaleOperationAsync(
-            form.VentaMovilId, requestHash,
-            form.VendedorId, form.ClienteId, form.CausaId,
-            form.FechaHora.ToString("o"),
+            dto.VentaMovilId, requestHash,
+            dto.VendedorId, dto.ClienteId, dto.CausaId,
+            dto.FechaHora.ToString("o"),
+            form.PayloadJson, sessionJson,
             ct);
 
-        // Si por condición de carrera ya quedó en estado terminal, reanudar
         if (op.RequestHash != requestHash)
             throw new InvalidOperationException(
-                $"Ya existe una no-venta con venta_movil_id='{form.VentaMovilId}' con datos distintos.");
+                $"Ya existe una no-venta con venta_movil_id='{dto.VentaMovilId}' con datos distintos.");
 
-        return await ReanudarSagaAsync(op, foto, fotoExtension, form, sesion, ct);
+        return await ReanudarSagaAsync(op, foto, fotoExtension, dto, sesion, ct);
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -137,57 +177,62 @@ public sealed class NoVentaSagaService : INoVentaSagaService
     private async Task<NoVentaPvResponseDto> ReanudarSagaAsync(
         NoSaleOperationRow op,
         IFormFile? foto, string? fotoExtension,
-        NoVentaPvFormDto form,
+        NoVentaPvCreateDto form,
         UsuarioSesion sesion,
         CancellationToken ct)
     {
-        // Resultado ya completo
-        if (op.Status == "completed" && op.DoctoPvId.HasValue)
+        string? fotoRelativePath = null;
+        if (op.FotoFileId.HasValue)
         {
-            _logger.LogInformation(
-                "[Saga] Operación ya completada (idempotencia): venta_movil_id={VentaMovilId}, DoctoPvId={DoctoPvId}",
-                op.VentaMovilId, op.DoctoPvId);
+            var media = await EncontrarMediaPorIdAsync(op.FotoFileId.Value, ct);
+            fotoRelativePath = media?.RelativePath;
+        }
 
-            MediaFileRow? mediaExistente = op.FotoFileId.HasValue
-                ? await _store.FindMediaFileByStoredNameAsync(
-                    (await _store.FindMediaFileByStoredNameAsync("", ct))?.StoredName ?? "", ct)
-                : null;
-
+        // Resultado ya completo
+        if (op.Status == "completed")
+        {
             return new NoVentaPvResponseDto(
-                op.DoctoPvId!.Value,
+                op.DoctoPvId ?? 0,
                 op.Folio ?? "",
                 "No Venta registrada exitosamente",
-                mediaExistente?.RelativePath);
+                fotoRelativePath);
         }
 
-        // ── PASO 5: Staging (si hay foto y aún no se guardó) ─────────────────
+        // Si falló permanentemente, la retomamos solo si se proveen nuevos datos o simplemente lanzamos error.
+        if (op.Status == "permanently_failed" || op.Status == "dead_letter")
+            throw new InvalidOperationException($"La operación está en estado terminal fallido ({op.Status}).");
+
         long? mediaFileId = op.FotoFileId;
-        string? fotoRelativePath = null;
 
-        if (foto != null && foto.Length > 0 && op.Status == "received")
+        // ── PASO 5: Guardar foto en disco (staging) ──────────────────────────
+        if (op.Status == "pending" || op.Status == "retryable_failed")
         {
-            try
+            if (foto != null && foto.Length > 0)
             {
-                var staging = await _fotoStorage.GuardarStagingAsync(foto, op.Id, fotoExtension!, ct);
-                var mediaFile = await _store.CreateMediaFileAsync(
-                    op.Id, "no_sale_photo",
-                    foto.FileName, staging.StoredName, staging.RelativePath,
-                    foto.ContentType ?? "image/jpeg", staging.SizeBytes, staging.Sha256,
-                    ct);
-                mediaFileId = mediaFile.Id;
-                op = await _store.UpdateNoSaleOperationAsync(op.Id, "media_staged", fotoFileId: mediaFileId, ct: ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Saga] Fallo en staging para operación {Id}", op.Id);
-                await _store.UpdateNoSaleOperationAsync(op.Id, "failed",
-                    errorCode: "STAGING_FAILED", errorMessage: ex.Message, ct: ct);
-                throw;
+                try
+                {
+                    var staging = await _fotoStorage.GuardarStagingAsync(foto, op.Id, fotoExtension!, ct);
+                    var media = await _store.CreateMediaFileAsync(
+                        op.Id, "no_sale_photo",
+                        foto.FileName, staging.StoredName, staging.RelativePath,
+                        foto.ContentType ?? "image/jpeg", staging.SizeBytes, staging.Sha256,
+                        ct);
+                    op = await _store.UpdateNoSaleOperationAsync(op.Id, "media_staged", fotoFileId: media.Id, ct: ct);
+                    mediaFileId = media.Id;
+                    fotoRelativePath = media.RelativePath;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[Saga] Fallo al guardar foto staging para operación {Id}", op.Id);
+                    await _store.UpdateNoSaleOperationAsync(op.Id, "retryable_failed",
+                        errorCode: "STAGING_FAILED", errorMessage: ex.Message, ct: ct);
+                    throw;
+                }
             }
         }
 
-        // ── PASO 6: Firebird (si aún no se comprometió) ──────────────────────
-        if (op.Status is "received" or "media_staged")
+        // ── PASO 6: Insertar en Firebird ─────────────────────────────────────
+        if (op.Status == "media_staged" || op.Status == "pending")
         {
             try
             {
@@ -208,21 +253,21 @@ public sealed class NoVentaSagaService : INoVentaSagaService
 
                 var (doctoPvId, folio) = await _ventaService.RegistrarNoVentaPvAsync(sesion, dto);
                 op = await _store.UpdateNoSaleOperationAsync(
-                    op.Id, "firebird_committed",
+                    op.Id, "media_promotion_pending",
                     doctoPvId: doctoPvId, folio: folio, ct: ct);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[Saga] Fallo en Firebird para operación {Id}", op.Id);
-                // NO marcar como failed si media_staged: dejar para reconciliación
-                await _store.UpdateNoSaleOperationAsync(op.Id, op.Status,
+                // NO marcar como failed si no estamos seguros. Lo dejamos en su estado o retryable_failed
+                await _store.UpdateNoSaleOperationAsync(op.Id, "retryable_failed",
                     errorCode: "FIREBIRD_FAILED", errorMessage: ex.Message, ct: ct);
                 throw;
             }
         }
 
         // ── PASO 7: Promover foto (si hay media y aún no se promovió) ────────
-        if (op.Status == "firebird_committed" && mediaFileId.HasValue)
+        if (op.Status == "media_promotion_pending" && mediaFileId.HasValue)
         {
             // Obtener stored_name del media file
             var mediaFile = await EncontrarMediaPorIdAsync(mediaFileId.Value, ct);
@@ -238,7 +283,7 @@ public sealed class NoVentaSagaService : INoVentaSagaService
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[Saga] Fallo al promover foto para operación {Id}; la operación sigue en firebird_committed",
+                        "[Saga] Fallo al promover foto para operación {Id}; la operación sigue en DB_SYNCED",
                         op.Id);
                     // No relanzar: el documento Firebird está comprometido, solo falló la promoción.
                 }
@@ -275,25 +320,5 @@ public sealed class NoVentaSagaService : INoVentaSagaService
         // el stored_name se puede recuperar del registro de la operación si la guardamos.
         // TODO(Sprint 5): añadir FindMediaFileByIdAsync al store.
         return null; // retorna null → se omite la promoción en este paso si no se puede encontrar
-    }
-
-    private static string CalcularRequestHash(NoVentaPvFormDto form, string? fotoHash, string? fotoMime)
-    {
-        var campos = new
-        {
-            venta_movil_id = form.VentaMovilId,
-            vendedor_id    = form.VendedorId,
-            cliente_id     = form.ClienteId,
-            causa_id       = form.CausaId,
-            causa_desc     = form.CausaDesc?.Trim(),
-            comentario     = form.Comentario?.Trim(),
-            fecha_hora     = form.FechaHora.ToString("o"),
-        };
-        var json = JsonSerializer.Serialize(campos,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
-
-        var contenido = $"{json}|{fotoHash ?? "EMPTY"}|{fotoMime ?? "NONE"}";
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(contenido));
-        return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }

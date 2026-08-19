@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace Rutx.Sincronizador.Admin;
 
@@ -204,6 +206,34 @@ public static class InstalacionHelper
         Directory.CreateDirectory(InstalacionPaths.RutaStaging);
         Directory.CreateDirectory(InstalacionPaths.RutaRespaldos);
         Directory.CreateDirectory(InstalacionPaths.RutaLogs);
+
+        EstablecerAcls(InstalacionPaths.MicrosipExtrasRaiz);
+    }
+
+    private static void EstablecerAcls(string directorio)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        
+        try
+        {
+            var dInfo = new DirectoryInfo(directorio);
+            var security = dInfo.GetAccessControl();
+            
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var service = new SecurityIdentifier(WellKnownSidType.NetworkServiceSid, null);
+
+            security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.Modify, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            
+            dInfo.SetAccessControl(security);
+            Console.WriteLine($"[INFO] ACLs aplicadas en {directorio} (Administrators, SYSTEM, NetworkService)");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[AVISO] No se pudieron aplicar las ACLs en {directorio}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -290,14 +320,18 @@ public static class InstalacionHelper
 
         conexiones["FirebirdConnection"] = cadena;
 
-        // Actualizar ruta SQLite al path canonico de Microsip Extras
-        var sqlite = nodo["WebSqlite"] as JsonObject;
-        if (sqlite != null)
-            sqlite["Ruta"] = InstalacionPaths.RutaDb;
+        // Actualizar ruta SQLite al path canonico de Microsip Extras (Consolidacion Fase B)
+        var comple = nodo["ComplementariaDb"] as JsonObject;
+        if (comple == null)
+        {
+            comple = new JsonObject();
+            nodo["ComplementariaDb"] = comple;
+        }
+        comple["Ruta"] = InstalacionPaths.RutaDb;
 
-        var colaOffline = nodo["ColaOffline"] as JsonObject;
-        if (colaOffline != null)
-            colaOffline["RutaSqlite"] = InstalacionPaths.RutaDb;
+        // Limpiar configuraciones legadas
+        nodo.AsObject().Remove("WebSqlite");
+        nodo.AsObject().Remove("ColaOffline");
 
         var storage = nodo["Storage"] as JsonObject;
         if (storage != null)

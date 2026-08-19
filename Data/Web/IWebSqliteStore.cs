@@ -112,6 +112,8 @@ public interface IWebSqliteStore
         int clienteId,
         int causaId,
         string fechaHora,
+        string? payloadJson = null,
+        string? sessionJson = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -167,6 +169,14 @@ public interface IWebSqliteStore
         long id,
         string status,
         string? relativePath = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Obtiene las operaciones de no-venta que deben ser reintentadas.
+    /// </summary>
+    Task<List<NoSaleOperationRow>> ObtenerNoVentasParaReintentoAsync(
+        int maxIntentos = 5,
+        int limite = 10,
         CancellationToken ct = default);
 }
 

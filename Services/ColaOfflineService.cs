@@ -63,6 +63,11 @@ public class ColaOfflineService : IColaOfflineService
         return await _repository.ObtenerPendientesAsync(limite);
     }
 
+    public async Task<List<ColaOperacion>> ReclamarPendientesAsync(int limite = 10, TimeSpan? leaseDuration = null)
+    {
+        return await _repository.ReclamarPendientesAsync(limite, leaseDuration);
+    }
+
     public async Task<List<ColaOperacion>> ObtenerPorEstadoAsync(EstadoOperacion estado, int limite = 100)
     {
         return await _repository.ObtenerPorEstadoAsync(estado, limite);
@@ -110,7 +115,8 @@ public class ColaOfflineService : IColaOfflineService
             if (operacion.Intentos >= operacion.MaxIntentos)
             {
                 operacion.Estado = EstadoOperacion.FALLIDO;
-                _logger.LogError(ex, "Operación {OperacionId} marcada como FALLIDO después de {Intentos} intentos",
+                operacion.DeadLetter = true;
+                _logger.LogError(ex, "Operación {OperacionId} enviada a DEAD LETTER después de {Intentos} intentos",
                     operacion.OperacionId, operacion.Intentos);
             }
             else
@@ -179,23 +185,53 @@ public class ColaOfflineService : IColaOfflineService
         if (venta == null)
             throw new InvalidOperationException("Payload de venta inválido o vacío");
 
+        if (string.IsNullOrEmpty(venta.VentaMovilId))
+            throw new InvalidOperationException("La venta no tiene VentaMovilId.");
+
         if (venta.CajaId == null || venta.CajaId <= 0)
             throw new InvalidOperationException(
                 "La venta en cola no tiene CajaId resuelto. El login nativo debe asignar la caja antes de enviar.");
 
-        // La identidad se capturo en el login y viajo en el DTO (cola offline).
-        var sesion = new UsuarioSesion
+        // Idempotencia: Verificar si ya la sincronizamos
+        var sincronizada = await _repository.ObtenerVentaSincronizadaAsync(venta.VentaMovilId);
+        if (sincronizada != null && sincronizada.Estado == "COMPLETADO")
         {
-            Usuario = venta.UsuarioCreador ?? "MOVIL",
-            VendedorId = venta.VendedorId,
-            VendedorNombre = venta.UsuarioCreador ?? "VENDEDOR",
-            CajeroId = venta.CajeroId ?? 0,
-            CajaId = venta.CajaId.Value,
-            AlmacenId = venta.AlmacenId ?? 0,
-            SucursalId = venta.SucursalId ?? 0
-        };
+            _logger.LogInformation("La venta {VentaMovilId} ya fue sincronizada en Firebird (DoctoPvId: {DoctoPvId})", venta.VentaMovilId, sincronizada.DoctoPvId);
+            return;
+        }
 
-        await _ventaServicePv.RegistrarVentaPvAsync(sesion, venta);
+        // Reservar (si devuelve false, alguien más la está procesando)
+        if (!await _repository.ReservarVentaAsync(venta.VentaMovilId))
+        {
+            _logger.LogWarning("La venta {VentaMovilId} ya está siendo procesada por otro worker.", venta.VentaMovilId);
+            throw new InvalidOperationException("Concurrencia en venta detectada");
+        }
+
+        try
+        {
+            // La identidad se capturó en el login y viajó en el DTO (cola offline).
+            var sesion = new UsuarioSesion
+            {
+                Usuario = venta.UsuarioCreador ?? "MOVIL",
+                VendedorId = venta.VendedorId,
+                VendedorNombre = venta.UsuarioCreador ?? "VENDEDOR",
+                CajeroId = venta.CajeroId ?? 0,
+                CajaId = venta.CajaId.Value,
+                AlmacenId = venta.AlmacenId ?? 0,
+                SucursalId = venta.SucursalId ?? 0
+            };
+
+            var response = await _ventaServicePv.RegistrarVentaPvAsync(sesion, venta);
+
+            // Completar registro de idempotencia
+            await _repository.CompletarVentaAsync(venta.VentaMovilId, response.DoctoPvId, response.Folio);
+        }
+        catch
+        {
+            // Liberar para permitir reintento
+            await _repository.LiberarVentaAsync(venta.VentaMovilId);
+            throw;
+        }
     }
 
     private async Task ProcesarClienteAsync(ColaOperacion operacion)

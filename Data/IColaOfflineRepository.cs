@@ -7,6 +7,7 @@ public interface IColaOfflineRepository
     Task<ColaOperacion> InsertarAsync(ColaOperacion operacion);
     Task<ColaOperacion?> ObtenerPorIdAsync(string operacionId);
     Task<List<ColaOperacion>> ObtenerPendientesAsync(int limite = 10);
+    Task<List<ColaOperacion>> ReclamarPendientesAsync(int limite = 10, TimeSpan? leaseDuration = null);
     Task<List<ColaOperacion>> ObtenerPorEstadoAsync(EstadoOperacion estado, int limite = 100);
     Task ActualizarAsync(ColaOperacion operacion);
     Task EliminarAsync(string operacionId);

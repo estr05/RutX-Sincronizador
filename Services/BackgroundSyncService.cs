@@ -30,8 +30,12 @@ public class BackgroundSyncService : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var colaService = scope.ServiceProvider.GetRequiredService<IColaOfflineService>();
+                var sagaService = scope.ServiceProvider.GetRequiredService<INoVentaSagaService>();
 
-                var pendientes = await colaService.ObtenerPendientesAsync(limite: 10);
+                // Procesar reintentos de la saga de no ventas
+                await sagaService.ProcesarReintentosAsync(stoppingToken);
+
+                var pendientes = await colaService.ReclamarPendientesAsync(limite: 10, leaseDuration: TimeSpan.FromMinutes(2));
 
                 if (pendientes.Count > 0)
                 {

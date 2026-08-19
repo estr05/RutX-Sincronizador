@@ -31,6 +31,8 @@ public static class WebMigrations
         new(2, "zonas-autorizadas-por-usuario",  ZonasAutorizadasPorUsuario),
         new(3, "sesiones-y-ubicaciones-vendedor", SesionesYUbicaciones),
         new(4, "saga-no-ventas-y-media",          SagaNoVentasYMedia),
+        new(5, "consolidacion-cola-offline",      ConsolidacionColaOffline),
+        new(6, "soporte-reintentos-saga",         SoporteReintentosSaga),
     };
 
     // ────────────────────────────────────────────────────────────────────────
@@ -185,5 +187,50 @@ public static class WebMigrations
         CREATE INDEX IF NOT EXISTS ix_rutx_media_files_operation   ON rutx_media_files(operation_id);
         CREATE INDEX IF NOT EXISTS ix_rutx_media_files_stored_name ON rutx_media_files(stored_name);
         CREATE INDEX IF NOT EXISTS ix_rutx_media_files_status      ON rutx_media_files(status);
+    ";
+
+    // ────────────────────────────────────────────────────────────────────────
+    // v005 — Consolidación de Cola Offline
+    // ────────────────────────────────────────────────────────────────────────
+    private const string ConsolidacionColaOffline = @"
+        -- Tabla de cola unificada, con columnas adicionales para lease y dead_letter
+        CREATE TABLE IF NOT EXISTS rutx_cola_operaciones (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            operacion_id        TEXT    NOT NULL UNIQUE,
+            tipo_operacion      TEXT    NOT NULL,
+            payload             TEXT    NOT NULL,
+            estado              TEXT    NOT NULL DEFAULT 'PENDIENTE',
+            intentos            INTEGER NOT NULL DEFAULT 0,
+            max_intentos        INTEGER NOT NULL DEFAULT 5,
+            siguiente_reintento TEXT    NOT NULL,
+            error_ultimo_intento TEXT   NULL,
+            fecha_creacion      TEXT    NOT NULL,
+            fecha_modificacion  TEXT    NOT NULL,
+            lease_until         TEXT    NULL,
+            dead_letter         INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS ix_rutx_cola_oper_estado ON rutx_cola_operaciones(estado);
+        CREATE INDEX IF NOT EXISTS ix_rutx_cola_oper_lease  ON rutx_cola_operaciones(lease_until);
+        CREATE INDEX IF NOT EXISTS ix_rutx_cola_oper_reintento ON rutx_cola_operaciones(siguiente_reintento);
+
+        CREATE TABLE IF NOT EXISTS rutx_ventas_sincronizadas (
+            venta_movil_id    TEXT PRIMARY KEY,
+            docto_pv_id       INTEGER NULL,
+            folio             TEXT NULL,
+            estado            TEXT NOT NULL DEFAULT 'PROCESANDO',
+            fecha_creacion    TEXT NOT NULL
+        );
+    ";
+    // ────────────────────────────────────────────────────────────────────────
+    // v006 — Soporte de reintentos para saga
+    // ────────────────────────────────────────────────────────────────────────
+    private const string SoporteReintentosSaga = @"
+        ALTER TABLE rutx_no_sale_operations ADD COLUMN payload_json TEXT NULL;
+        ALTER TABLE rutx_no_sale_operations ADD COLUMN session_json TEXT NULL;
+
+        -- Migrar los estados a los nuevos nombres
+        UPDATE rutx_no_sale_operations SET status = 'retryable_failed' WHERE status IN ('received', 'PENDING', 'media_staged', 'MEDIA_SYNCED', 'failed', 'FAILED');
+        UPDATE rutx_no_sale_operations SET status = 'media_promotion_pending' WHERE status IN ('firebird_committed', 'DB_SYNCED');
+        UPDATE rutx_no_sale_operations SET status = 'completed' WHERE status = 'COMPLETED';
     ";
 }

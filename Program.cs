@@ -253,28 +253,41 @@ builder.Services.AddScoped<IFkResolverService, FkResolverService>();
 // Auditoria de compatibilidad BD Microsip <-> sincronizador (wizard + panel web)
 builder.Services.AddScoped<IAuditoriaCompatibilidadService, AuditoriaCompatibilidadService>();
 
-// Cola Offline (Eduardo)
-string sqlitePath = builder.Configuration.GetValue<string>("ColaOffline:RutaSqlite") ?? "Data/cola_offline.db";
+// ====================================================================
+// PERSISTENCIA UNIFICADA (BD/C SQLite - Fase B)
+// ====================================================================
+string dbPath = builder.Configuration.GetValue<string>("ComplementariaDb:Ruta")
+    ?? @"C:\Microsip Extras\RUTX_COMPLEMENTARIA.db";
 
-// La ruta de la cola SQLite es relativa al directorio de trabajo. Al ser
-// lanzado por el launcher (WorkingDirectory = carpeta del exe), la carpeta
-// Data/ puede no existir ahi y SQLite falla con 'Error 14: unable to open
-// database file'. Se resuelve contra el ContentRoot y se crea la carpeta.
-if (!Path.IsPathRooted(sqlitePath))
-    sqlitePath = Path.Combine(builder.Environment.ContentRootPath, sqlitePath);
-var sqliteDir = Path.GetDirectoryName(sqlitePath);
-if (!string.IsNullOrWhiteSpace(sqliteDir))
-    Directory.CreateDirectory(sqliteDir);
-string sqliteConnectionString = $"Data Source={sqlitePath}";
+// En desarrollo o si no está rooteado, ubicar en ContentRoot
+if (!Path.IsPathRooted(dbPath))
+{
+    dbPath = Path.Combine(builder.Environment.ContentRootPath, dbPath);
+}
 
-builder.Services.AddSingleton<IColaOfflineRepository>(new ColaOfflineRepository(sqliteConnectionString));
+var dbDir = Path.GetDirectoryName(dbPath);
+if (!string.IsNullOrWhiteSpace(dbDir))
+    Directory.CreateDirectory(dbDir);
+
+string unifiedConnectionString = $"Data Source={dbPath}";
+
+// Factoría Unificada con `journal_mode=WAL`
+builder.Services.AddSingleton<Rutx.Sincronizador.Data.Sqlite.ISqliteConnectionFactory>(sp =>
+    new Rutx.Sincronizador.Data.Sqlite.SqliteConnectionFactory(
+        unifiedConnectionString, 
+        sp.GetRequiredService<ILogger<Rutx.Sincronizador.Data.Sqlite.SqliteConnectionFactory>>()));
+
+builder.Services.AddScoped<Rutx.Sincronizador.Data.Migrations.PhysicalMigrationService>();
+
+// Repositorios usando la factoría unificada
+builder.Services.AddSingleton<IColaOfflineRepository, ColaOfflineRepository>();
 builder.Services.AddScoped<IColaOfflineService, ColaOfflineService>();
 builder.Services.AddHostedService<BackgroundSyncService>();
 
 // Saga idempotente de no ventas y fotos (Pendiente 3 Sprint 4)
 builder.Services.AddScoped<INoVentaSagaService, NoVentaSagaService>();
 
-// Servicios v2 web (contrato v2 §8): flujo Controller Web → Interface Web → Service Web.
+// Servicios v2 web (contrato v2 §8)
 builder.Services.AddScoped<IDashboardWebService, DashboardWebService>();
 builder.Services.AddScoped<IReportsWebService, ReportsWebService>();
 builder.Services.AddScoped<IRouteMonitoringWebService, RouteMonitoringWebService>();
@@ -283,20 +296,8 @@ builder.Services.AddScoped<ICustomerWebService, CustomerWebService>();
 builder.Services.AddScoped<IInventoryWebService, InventoryWebService>();
 builder.Services.AddScoped<INotificationWebService, NotificationWebService>();
 
-// BD complementaria web (SQLite): esquema gestionado por migraciones
-// versionadas (WebSqliteMigrator + schema_version) y credenciales de
-// administrador inicial SOLO desde configuración externa (nunca versionadas).
-string webSqlitePath = builder.Configuration.GetValue<string>("WebSqlite:Ruta")
-    ?? "Data/web.db";
-if (!Path.IsPathRooted(webSqlitePath))
-    webSqlitePath = Path.Combine(builder.Environment.ContentRootPath, webSqlitePath);
-var webSqliteDir = Path.GetDirectoryName(webSqlitePath);
-if (!string.IsNullOrWhiteSpace(webSqliteDir))
-    Directory.CreateDirectory(webSqliteDir);
-string webSqliteConnectionString = $"Data Source={webSqlitePath}";
-
-builder.Services.AddSingleton<IWebSqliteStore>(sp =>
-    new WebSqliteStore(webSqliteConnectionString, sp.GetRequiredService<ILogger<WebSqliteStore>>()));
+// Web Sqlite Store Unificado
+builder.Services.AddSingleton<IWebSqliteStore, WebSqliteStore>();
 
 // Configuración JWT — la clave ya fue validada en el bloque de secretos al arranque.
 var key = jwtKey; // reutilizar la variable ya leida y validada
@@ -411,6 +412,12 @@ try
     var version = await webStore.EnsureSchemaAsync();
     await webStore.EnsureAdminSeedAsync(app.Configuration);
     app.Logger.LogInformation("BD complementaria web lista (esquema v{Version}).", version);
+
+    // Ejecutar migración física legacy si existe cola_offline.db en ContentRoot o Data
+    using var scope = app.Services.CreateScope();
+    var migrator = scope.ServiceProvider.GetRequiredService<Rutx.Sincronizador.Data.Migrations.PhysicalMigrationService>();
+    var legacyPath = Path.Combine(app.Environment.ContentRootPath, "Data", "cola_offline.db");
+    await migrator.MigrateLegacyQueueAsync(legacyPath);
 }
 catch (Exception ex)
 {

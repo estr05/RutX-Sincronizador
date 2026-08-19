@@ -15,4 +15,6 @@ public interface INoVentaSagaService
         UsuarioSesion sesion,
         NoVentaPvFormDto form,
         CancellationToken ct = default);
+
+    Task ProcesarReintentosAsync(CancellationToken ct = default);
 }

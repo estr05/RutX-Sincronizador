@@ -267,34 +267,95 @@ public sealed class NoVentaSagaService : INoVentaSagaService
         }
 
         // ── PASO 7: Promover foto (si hay media y aún no se promovió) ────────
-        if (op.Status == "media_promotion_pending" && mediaFileId.HasValue)
+        // IMPORTANTE: si la promoción falla la operación queda en retryable_failed,
+        // NUNCA avanza a 'completed' sin confirmación de la foto.
+        bool promocionExitosa = false;
+        if (op.Status == "media_promotion_pending")
         {
-            // Obtener stored_name del media file
-            var mediaFile = await EncontrarMediaPorIdAsync(mediaFileId.Value, ct);
-            if (mediaFile != null && mediaFile.Status == "staging")
+            if (mediaFileId.HasValue)
             {
-                try
+                var mediaFile = await EncontrarMediaPorIdAsync(mediaFileId.Value, ct);
+                if (mediaFile == null)
                 {
-                    var relativeFinal = await _fotoStorage.PromoverAsync(mediaFile.StoredName, ct);
-                    await _store.UpdateMediaFileStatusAsync(mediaFile.Id, "completed",
-                        relativePath: relativeFinal, ct: ct);
-                    fotoRelativePath = relativeFinal;
+                    // El registro de media desapareció — error de datos, fallo recuperable.
+                    _logger.LogError(
+                        "[Saga] MediaFile id={MediaId} no encontrado para operación {Id}; dejando en retryable_failed",
+                        mediaFileId.Value, op.Id);
+                    await _store.UpdateNoSaleOperationAsync(op.Id, "retryable_failed",
+                        errorCode: "MEDIA_NOT_FOUND",
+                        errorMessage: $"MediaFile id={mediaFileId.Value} no encontrado en el almacén.",
+                        ct: ct);
+                    throw new InvalidOperationException(
+                        $"[Saga] MediaFile id={mediaFileId.Value} no encontrado. La operación se marcó como retryable_failed.");
                 }
-                catch (Exception ex)
+
+                if (mediaFile.Status == "completed")
                 {
-                    _logger.LogWarning(ex,
-                        "[Saga] Fallo al promover foto para operación {Id}; la operación sigue en DB_SYNCED",
-                        op.Id);
-                    // No relanzar: el documento Firebird está comprometido, solo falló la promoción.
+                    // Ya promovida (reintento idempotente).
+                    fotoRelativePath = mediaFile.RelativePath;
+                    promocionExitosa = true;
+                }
+                else if (mediaFile.Status == "staging")
+                {
+                    try
+                    {
+                        var relativeFinal = await _fotoStorage.PromoverAsync(mediaFile.StoredName, ct);
+                        await _store.UpdateMediaFileStatusAsync(mediaFile.Id, "completed",
+                            relativePath: relativeFinal, ct: ct);
+                        fotoRelativePath = relativeFinal;
+                        promocionExitosa = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        // La promoción falló: el documento Firebird está comprometido pero
+                        // la foto no llegó a permanent storage. Dejamos en retryable_failed
+                        // para que el worker de reintentos lo intente de nuevo.
+                        _logger.LogError(ex,
+                            "[Saga] Fallo al promover foto (MediaFile id={MediaId}) para operación {Id}; "
+                            + "dejando en retryable_failed para reintento automático",
+                            mediaFile.Id, op.Id);
+                        await _store.UpdateNoSaleOperationAsync(op.Id, "retryable_failed",
+                            errorCode: "PROMO_FAILED", errorMessage: ex.Message, ct: ct);
+                        // Relanzar para que el caller sepa que no se completó.
+                        throw;
+                    }
+                }
+                else
+                {
+                    // Estado de media inesperado (ej. 'failed'): marcar retryable.
+                    _logger.LogWarning(
+                        "[Saga] MediaFile id={MediaId} tiene estado inesperado '{Status}' para op {Id}.",
+                        mediaFile.Id, mediaFile.Status, op.Id);
+                    await _store.UpdateNoSaleOperationAsync(op.Id, "retryable_failed",
+                        errorCode: "MEDIA_BAD_STATE",
+                        errorMessage: $"Estado de media inesperado: '{mediaFile.Status}'.",
+                        ct: ct);
+                    throw new InvalidOperationException(
+                        $"[Saga] Estado de media inesperado: '{mediaFile.Status}'. Operación marcada como retryable_failed.");
                 }
             }
-            else if (mediaFile?.Status == "completed")
+            else
             {
-                fotoRelativePath = mediaFile.RelativePath;
+                // Sin foto: la operación Firebird ya está comprometida y no hay archivo que promover.
+                promocionExitosa = true;
             }
+        }
+        else
+        {
+            // Si el estado no es media_promotion_pending pero llegamos aquí,
+            // es un reintento con estado ya resuelto.
+            promocionExitosa = true;
         }
 
         // ── PASO 8: Marcar operación como completada ──────────────────────────
+        // Solo se ejecuta cuando la promoción fue exitosa (o no había foto).
+        // Si llegamos aquí sin 'promocionExitosa', es un bug de lógica — protección defensiva.
+        if (!promocionExitosa)
+        {
+            throw new InvalidOperationException(
+                "[Saga] Se alcanzó el paso 8 sin promoción confirmada. Bug de lógica detectado.");
+        }
+
         op = await _store.UpdateNoSaleOperationAsync(op.Id, "completed", ct: ct);
 
         _logger.LogInformation(

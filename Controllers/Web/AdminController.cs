@@ -9,8 +9,11 @@ namespace Rutx.Sincronizador.Controllers.Web;
 
 /// <summary>
 /// Panel de administracion del sincronizador (web de config bajo demanda).
-/// Rutas nuevas bajo /api/v2/admin/* — NO tocan el contrato movil /api/v1/*.
-/// Sin autenticacion (solo escucha local); revisar si se expone fuera de localhost.
+/// Rutas bajo /api/v2/admin/* — NO tocan el contrato movil /api/v1/*.
+/// Protegido con autenticacion Basic (<see cref="Rutx.Sincronizador.Security.AdminAuth"/>)
+/// y accesible unicamente desde loopback (middleware de superficie en Program.cs).
+/// GET /config y GET /conexion redactan ConnectionStrings, Jwt y WebAuth antes de responder:
+/// nunca se devuelven passwords ni claves al cliente.
 /// </summary>
 [Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]

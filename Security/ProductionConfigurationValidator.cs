@@ -25,9 +25,9 @@ namespace Rutx.Sincronizador.Security
             }
 
             var expiration = configuration.GetValue<int>("Jwt:ExpirationMinutes", 480);
-            if (expiration < 15 || expiration > 15480)
+            if (expiration < 15 || expiration > 480)
             {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Jwt:ExpirationMinutes debe estar entre 15 y 15480 minutos.");
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Jwt:ExpirationMinutes debe estar entre 15 y 480 minutos (8 horas) en Produccion.");
             }
 
             // 2. Validacion de Firebird

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using System;
+using FirebirdSql.Data.FirebirdClient;
 
 namespace Rutx.Sincronizador.Security
 {
@@ -23,6 +24,12 @@ namespace Rutx.Sincronizador.Security
                 throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Jwt:Key es invalida, vacia, menor a 32 caracteres o contiene el placeholder CHANGE_ME en Produccion.");
             }
 
+            var expiration = configuration.GetValue<int>("Jwt:ExpirationMinutes", 480);
+            if (expiration < 15 || expiration > 15480)
+            {
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Jwt:ExpirationMinutes debe estar entre 15 y 15480 minutos.");
+            }
+
             // 2. Validacion de Firebird
             var fbConn = configuration.GetConnectionString("FirebirdConnection");
             if (string.IsNullOrWhiteSpace(fbConn) || 
@@ -32,7 +39,29 @@ namespace Rutx.Sincronizador.Security
                 throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection no puede estar vacia, ni usar contrasenas por defecto ('masterkey') o placeholders (CHANGE_ME) en Produccion.");
             }
 
-            // 3. Validacion TLS y Topologia para puertos expuestos
+            try
+            {
+                var builder = new FbConnectionStringBuilder(fbConn);
+                if (string.IsNullOrWhiteSpace(builder.Password) || 
+                    builder.Password.Equals("masterkey", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection debe incluir una contrasena valida (Password no puede estar vacia ni ser 'masterkey').");
+                }
+            }
+            catch (Exception ex) when (!(ex is InvalidOperationException))
+            {
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: No se pudo parsear FirebirdConnection.", ex);
+            }
+
+            // 3. Validacion de Admin Auth (Basic)
+            var adminUser = configuration["WebAuth:AdminUsername"];
+            var adminPass = configuration["WebAuth:AdminPassword"];
+            if (string.IsNullOrWhiteSpace(adminUser) || string.IsNullOrWhiteSpace(adminPass))
+            {
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminUsername y AdminPassword deben estar configurados en Produccion para el panel local.");
+            }
+
+            // 4. Validacion TLS y Topologia para puertos expuestos
             var externalEnabled = configuration.GetValue<bool>("Network:ExternalApiEnabled");
             if (externalEnabled)
             {

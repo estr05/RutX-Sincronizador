@@ -162,6 +162,14 @@ public interface IWebSqliteStore
         CancellationToken ct = default);
 
     /// <summary>
+    /// Busca un archivo multimedia por su ID.
+    /// Devuelve null si no existe.
+    /// </summary>
+    Task<MediaFileRow?> FindMediaFileByIdAsync(
+        long id,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Actualiza el estado de un archivo multimedia (ej: staging → completed).
     /// Opcionalmente actualiza la ruta relativa (para el paso de promoción).
     /// </summary>

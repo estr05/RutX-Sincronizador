@@ -595,6 +595,23 @@ public sealed class WebSqliteStore : IWebSqliteStore
         return await reader.ReadAsync(ct) ? LeerMediaFile(reader) : null;
     }
 
+    public async Task<MediaFileRow?> FindMediaFileByIdAsync(
+        long id, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, category, operation_id, original_name, stored_name, relative_path,
+                   mime_type, size_bytes, sha256, status, created_at, promoted_at
+            FROM rutx_media_files
+            WHERE id = $id
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$id", id);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? LeerMediaFile(reader) : null;
+    }
+
     public async Task UpdateMediaFileStatusAsync(
         long id, string status, string? relativePath = null, CancellationToken ct = default)
     {

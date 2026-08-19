@@ -92,8 +92,16 @@ builder.Host.UseWindowsService(options =>
 // ----------------------------------------------------------------
 builder.WebHost.ConfigureKestrel((context, options) =>
 {
-    // 1. Listener Local / Administrativo (siempre en loopback)
-    options.ListenLocalhost(5047);
+    if (context.HostingEnvironment.IsDevelopment())
+    {
+        // En desarrollo, permitimos trafico de cualquier IP (emulador, WiFi, Tailscale)
+        options.ListenAnyIP(5047);
+    }
+    else
+    {
+        // 1. Listener Local / Administrativo (siempre en loopback en produccion)
+        options.ListenLocalhost(5047);
+    }
 
     // 2. Listener Remoto / API (deshabilitado por defecto)
     var externalEnabled = context.Configuration.GetValue<bool>("Network:ExternalApiEnabled");

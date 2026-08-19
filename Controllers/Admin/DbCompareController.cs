@@ -39,6 +39,22 @@ public class DbCompareController : ControllerBase
         return baseConn.Replace("CHOCOLATES.fdb", $"{dbName}.fdb");
     }
 
+    private static readonly HashSet<string> TablasPermitidas = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "DOCTOS_PV", "DOCTOS_PV_DET", "DOCTOS_PV_COBROS", "IMPUESTOS_DOCTOS_PV",
+        "CAJEROS", "CAJAS", "AGENTES", "VENDEDORES", "CLIENTES", "DIRS_CLIENTES",
+        "ARTICULOS", "PRECIOS_ARTICULOS", "RUTAS", "RUTAS_DET", "IMPUESTOS", "IMPUESTOS_ARTICULOS",
+        "FORMAS_COBRO", "FOLIOS_CAJAS", "MONEDAS", "COND_PAGO", "SUCURSALES", "ALMACENES",
+        // Tablas que podrian coincidir con busquedas de visitas o noventas:
+        "VISITAS_CLIENTES", "NO_VENTAS", "INCIDENCIAS", "RAZONES_NO_VENTA", "CAUSAS_NO_VENTA"
+    };
+
+    private void ValidarTablaSegura(string tabla)
+    {
+        if (!TablasPermitidas.Contains(tabla.Trim()))
+            throw new ArgumentException($"La tabla '{tabla}' no esta en la allowlist estricta de tablas consultables por administracion.");
+    }
+
     // ========================================================================
     // ENDPOINT 1: Comparar DATOS de catalogos (los IDs que usa el sincronizador)
     // ========================================================================
@@ -331,7 +347,11 @@ public class DbCompareController : ControllerBase
                 }
 
                 int count = 0;
-                try { count = await connection.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {tabla}"); }
+                try 
+                { 
+                    ValidarTablaSegura(tabla);
+                    count = await connection.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {tabla}"); 
+                }
                 catch (Exception ex) { _logger.LogWarning(ex, "Error al contar registros de {Tabla}", tabla); }
 
                 estructuraNoVenta[tabla] = new
@@ -515,6 +535,7 @@ public class DbCompareController : ControllerBase
                     default: colId = "ID"; colNombre = "NOMBRE"; extraSql = ""; break;
                 }
 
+                ValidarTablaSegura(tabla);
                 var rows = await connection.QueryAsync($@"
                     SELECT {colId} AS ID, {colNombre} AS NOMBRE {extraSql}
                     FROM {tabla}
@@ -589,6 +610,7 @@ public class DbCompareController : ControllerBase
 
             try
             {
+                ValidarTablaSegura(tabla);
                 var rows = await connection.QueryAsync($@"
                     SELECT {idCol} AS ID, {nameCol} AS NOMBRE {extraCols}
                     FROM {tabla}
@@ -703,7 +725,11 @@ public class DbCompareController : ControllerBase
                     trigList.Add((trig.TRIG_NAME as string)?.Trim() ?? "");
 
                 int count = 0;
-                try { count = await connection.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {tabla}"); }
+                try 
+                { 
+                    ValidarTablaSegura(tabla);
+                    count = await connection.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {tabla}"); 
+                }
                 catch (Exception ex) { _logger.LogWarning(ex, "Error al contar registros de {Tabla}", tabla); }
 
                 resultado[tabla] = new Dictionary<string, object>

@@ -38,7 +38,7 @@ public class InstalacionWizardForm : Form
     private string _raiz = InstalacionHelper.RutaDefault;
     private string _rutaFdb = "";
     private string _usuario = "SYSDBA";
-    private string _password = "masterkey";
+    private string _password = "";
     private bool _conexionOk;
     private FirebirdVersionInfo? _versionInfo;
     private bool _instalado;
@@ -360,7 +360,7 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(Lbl("Contraseña", 222));
         _txtPassword = new TextBox
         {
-            Text = "masterkey",
+            Text = "",
             Location = new Point(0, 245),
             Width = 300,
             Font = new Font("Cascadia Code", 10F),
@@ -413,8 +413,7 @@ public class InstalacionWizardForm : Form
             MaximumSize = new Size(520, 0),
             Font = new Font("Figtree", 9F, FontStyle.Regular),
             ForeColor = TextoMuted,
-            Text = "Por defecto se intenta con SYSDBA / masterkey. Si tu Firebird usa otra "
-                 + "contraseña, escríbela aquí y presiona \"Probar conexión\"."
+            Text = "Escribe la contraseña de tu base de datos Firebird (el instalador NO usa contraseñas por defecto) y presiona \"Probar conexión\"."
         });
         return p;
     }

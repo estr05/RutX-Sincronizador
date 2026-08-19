@@ -314,11 +314,6 @@ public sealed class NoVentaSagaService : INoVentaSagaService
 
     private async Task<MediaFileRow?> EncontrarMediaPorIdAsync(long mediaFileId, CancellationToken ct)
     {
-        // La interfaz de store no expone FindById para media; usar FindByStoredName
-        // Por ahora buscar por operation_id en la tabla sería ideal, pero IWebSqliteStore
-        // solo expone FindByStoredName. Se acepta este límite en Sprint 4:
-        // el stored_name se puede recuperar del registro de la operación si la guardamos.
-        // TODO(Sprint 5): añadir FindMediaFileByIdAsync al store.
-        return null; // retorna null → se omite la promoción en este paso si no se puede encontrar
+        return await _store.FindMediaFileByIdAsync(mediaFileId, ct);
     }
 }

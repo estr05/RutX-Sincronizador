@@ -32,6 +32,7 @@ public static class WebTokenFactory
             new("username", sesion.Username),
             new("display_name", sesion.DisplayName),
             new("scope", ScopeWeb),
+            new("must_change_password", sesion.MustChangePassword ? "true" : "false"),
         };
         foreach (var rol in sesion.Roles)
             claims.Add(new Claim("roles", rol));

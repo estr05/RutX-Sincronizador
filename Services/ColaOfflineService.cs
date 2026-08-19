@@ -169,7 +169,7 @@ public class ColaOfflineService : IColaOfflineService
     public DateTime CalcularSiguienteReintento(int intentos)
     {
         var delay = Math.Min(_baseDelaySegundos * Math.Pow(2, intentos), _maxDelaySegundos);
-        var jitter = new Random().NextDouble();
+        var jitter = Random.Shared.NextDouble();
         return DateTime.UtcNow.AddSeconds(delay + jitter);
     }
 

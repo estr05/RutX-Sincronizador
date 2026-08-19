@@ -44,15 +44,11 @@ public sealed class WebPermissionHandler : AuthorizationHandler<WebPermissionReq
         AuthorizationHandlerContext context,
         WebPermissionRequirement requirement)
     {
-        _logger.LogInformation("Handler invocado para permiso {Permiso} (scope={Scope})",
-            requirement.Permiso, WebPermissionRequirement.ObtenerScope(context.User) ?? "(sin scope)");
-
         var scope = WebPermissionRequirement.ObtenerScope(context.User);
         if (scope != WebPermissionRequirement.ScopeWeb)
         {
-            _logger.LogWarning("Permiso {Permiso}: scope={Scope}, claims={Claims}",
-                requirement.Permiso, scope ?? "(sin scope)",
-                string.Join("|", context.User.Claims.Select(c => $"{c.Type}={c.Value}")));
+            _logger.LogDebug("Permiso {Permiso}: scope={Scope} (no web), request rechazado",
+                requirement.Permiso, scope ?? "(sin scope)");
             return Task.CompletedTask;
         }
 

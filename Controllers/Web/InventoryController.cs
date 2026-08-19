@@ -32,9 +32,9 @@ public class InventoryController : ControllerBase
             var resultado = await _inventoryWebService.ListByRouteAsync(query, WebClaims.Zonas(User), ct);
 
             if (!resultado.IsSuccess)
-                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(resultado.Code!, resultado.Message!));
+                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
 
-            return Ok(WebEnvelope.Success(
+            return Ok(WebEnvelope.Success(HttpContext,
                 resultado.Response!.Data,
                 meta: new
                 {
@@ -48,7 +48,7 @@ public class InventoryController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/inventory/by-route");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 

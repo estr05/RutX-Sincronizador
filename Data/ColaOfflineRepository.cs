@@ -301,15 +301,29 @@ public class ColaOfflineRepository : IColaOfflineRepository, IDisposable
 
             // Marcador PROCESANDO "colgado" (proceso murio a mitad de la
             // venta): se libera para que el reintento pueda volver a intentar.
-            if (venta.Estado == "PROCESANDO" &&
-                DateTime.UtcNow - venta.FechaCreacion > TimeSpan.FromMinutes(2))
+            if (venta.Estado == "PROCESANDO")
             {
-                await LiberarVentaAsync(ventaMovilId);
-                return null;
+                var ahora = DateTime.UtcNow;
+                var ultimaActividad = await ObtenerFechaModificacionVentaAsync(conn, ventaMovilId) ?? venta.FechaCreacion;
+                if (ahora - ultimaActividad > TimeSpan.FromMinutes(2))
+                {
+                    await LiberarVentaAsync(ventaMovilId);
+                    return null;
+                }
             }
 
             return venta;
         });
+    }
+
+    private static async Task<DateTime?> ObtenerFechaModificacionVentaAsync(SqliteConnection conn, string ventaMovilId)
+    {
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            SELECT FechaCreacion FROM VentasSincronizadas WHERE VentaMovilId = @VentaMovilId";
+        cmd.Parameters.AddWithValue("@VentaMovilId", ventaMovilId);
+        var result = await cmd.ExecuteScalarAsync();
+        return result is string s ? DateTime.Parse(s) : null;
     }
 
     public async Task<bool> ReservarVentaAsync(string ventaMovilId)

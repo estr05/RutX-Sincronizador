@@ -24,7 +24,8 @@ public sealed class WebSqliteMigrator
     public WebSqliteMigrator(string connectionString, string? backupDirectory = null, ILogger? logger = null)
     {
         _connectionString = connectionString;
-        var dataDir = Path.GetDirectoryName(connectionString.Replace("Data Source=", "", StringComparison.OrdinalIgnoreCase).Trim())
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        var dataDir = Path.GetDirectoryName(builder.DataSource)
             ?? Directory.GetCurrentDirectory();
         _backupDirectory = backupDirectory ?? Path.Combine(dataDir, "backups");
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
@@ -48,7 +49,7 @@ public sealed class WebSqliteMigrator
             .ToList();
 
         if (pendientes.Count == 0)
-            return aplicadas.Max();
+            return aplicadas.Count > 0 ? aplicadas.Max() : 0;
 
         _logger.LogInformation("WebSqliteMigrator: {Pendientes} migracion(es) pendiente(s), se genera respaldo previo.", pendientes.Count);
         await GenerarRespaldoAsync(control, pendientes.First().Version, cancellationToken);
@@ -68,7 +69,8 @@ public sealed class WebSqliteMigrator
         await using var control = new SqliteConnection(_connectionString);
         await control.OpenAsync(cancellationToken);
         await CrearTablaControlAsync(control, cancellationToken);
-        return (await ObtenerVersionesAplicadasAsync(control, cancellationToken)).Max();
+        var aplicadas = await ObtenerVersionesAplicadasAsync(control, cancellationToken);
+        return aplicadas.Count > 0 ? aplicadas.Max() : 0;
     }
 
     private static async Task CrearTablaControlAsync(SqliteConnection control, CancellationToken ct)
@@ -97,7 +99,7 @@ public sealed class WebSqliteMigrator
 
     private async Task GenerarRespaldoAsync(SqliteConnection control, int versionObjetivo, CancellationToken ct)
     {
-        var respaldo = Path.Combine(_backupDirectory, $"web-v{versionObjetivo}-{DateTime.Now:yyyyMMddHHmmss}.db");
+        var respaldo = Path.Combine(_backupDirectory, $"web-v{versionObjetivo}-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
         try
         {
             await using var cmd = control.CreateCommand();
@@ -118,10 +120,17 @@ public sealed class WebSqliteMigrator
         var transaccion = (SqliteTransaction)await control.BeginTransactionAsync(ct);
         try
         {
+            // SQLite no soporta ALTER TABLE ... IF NOT EXISTS. Si la migración
+            // contiene un ALTER TABLE ADD COLUMN y la columna ya existe, se
+            // ignora esa línea específica para mantener idempotencia.
+            var sql = migracion.Sql;
+            if (EsAlterTableConColumnaExistente(sql, control))
+                sql = OmmitirAlterTableDuplicados(sql);
+
             await using (var cmd = control.CreateCommand())
             {
                 cmd.Transaction = transaccion;
-                cmd.CommandText = migracion.Sql;
+                cmd.CommandText = sql;
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
@@ -145,5 +154,52 @@ public sealed class WebSqliteMigrator
             await transaccion.RollbackAsync(ct);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Detecta si la migración contiene un ALTER TABLE ADD COLUMN cuya columna
+    /// ya existe en la tabla objetivo. Evita errores al re-ejecutar migraciones
+    /// cuyo registro schema_version se perdió pero el esquema ya fue aplicado.
+    /// </summary>
+    private static bool EsAlterTableConColumnaExistente(string sql, SqliteConnection control)
+    {
+        var lineas = sql.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var linea in lineas)
+        {
+            var trim = linea.Trim().ToUpperInvariant();
+            if (!trim.StartsWith("ALTER TABLE")) continue;
+
+            // ALTER TABLE <table> ADD COLUMN <col>
+            var match = System.Text.RegularExpressions.Regex.Match(
+                trim, @"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)");
+            if (!match.Success) continue;
+
+            var tabla = match.Groups[1].Value;
+            var columna = match.Groups[2].Value;
+
+            using var cmd = control.CreateCommand();
+            cmd.CommandText = $"PRAGMA table_info({tabla})";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                if (reader.GetString(1).Equals(columna, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static string OmmitirAlterTableDuplicados(string sql)
+    {
+        var lineas = sql.Split('\n');
+        var resultado = new List<string>();
+        foreach (var linea in lineas)
+        {
+            var trim = linea.Trim().ToUpperInvariant();
+            if (trim.StartsWith("ALTER TABLE") && trim.Contains("ADD COLUMN"))
+                continue;
+            resultado.Add(linea);
+        }
+        return string.Join('\n', resultado);
     }
 }

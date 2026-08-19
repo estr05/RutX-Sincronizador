@@ -110,6 +110,7 @@ public sealed class NotificationWebService : INotificationWebService
         }
 
         var creadas = new List<long>();
+        var first = true;
         foreach (var targetId in request.TargetIds.Distinct())
         {
             var fila = await _store.CreateNotificationAsync(
@@ -120,10 +121,11 @@ public sealed class NotificationWebService : INotificationWebService
                 request.Priority,
                 senderUserId,
                 senderUsername,
-                idempotencyKey,
+                first ? idempotencyKey : string.Empty,
                 traceId,
                 cancellationToken);
             creadas.Add(fila.Id);
+            first = false;
         }
 
         _logger.LogInformation("Notificaciones emitidas ({Count}) por '{Username}' (type={Type}, key={Key})",

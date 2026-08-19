@@ -32,14 +32,14 @@ public class CustomersController : ControllerBase
             var resultado = await _customerWebService.ListAsync(query, WebClaims.Zonas(User), ct);
 
             if (!resultado.IsSuccess)
-                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(resultado.Code!, resultado.Message!));
+                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
 
-            return Ok(WebEnvelope.Success(resultado.Response!.Data, meta: new { page = resultado.Response.Meta.Page, per_page = resultado.Response.Meta.PerPage, total = resultado.Response.Meta.Total, last_page = resultado.Response.Meta.LastPage }, filters: resultado.Response.Filters));
+            return Ok(WebEnvelope.Success(HttpContext, resultado.Response!.Data, meta: new { page = resultado.Response.Meta.Page, per_page = resultado.Response.Meta.PerPage, total = resultado.Response.Meta.Total, last_page = resultado.Response.Meta.LastPage }, filters: resultado.Response.Filters));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/customers");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 

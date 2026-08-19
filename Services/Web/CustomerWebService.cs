@@ -48,7 +48,7 @@ public sealed class CustomerWebService : ICustomerWebService
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var busqueda = EscapeLike(query.Search.Trim());
-            where.Add("(UPPER(c.NOMBRE) LIKE UPPER(@busqueda) OR CAST(c.CLIENTE_ID AS VARCHAR(20)) LIKE @busqueda)");
+            where.Add("(UPPER(c.NOMBRE) LIKE UPPER(@busqueda) ESCAPE '!' OR CAST(c.CLIENTE_ID AS VARCHAR(20)) LIKE @busqueda ESCAPE '!')");
             parametros.Add("@busqueda", $"%{busqueda}%");
         }
 
@@ -134,7 +134,7 @@ public sealed class CustomerWebService : ICustomerWebService
     }
 
     private static string EscapeLike(string valor)
-        => valor.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
+        => valor.Replace("%", "!%").Replace("_", "!_");
 
     private static bool EstatusValido(string status)
         => status is "A" or "B";

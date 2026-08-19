@@ -20,8 +20,8 @@ public class ReportsController : ControllerBase
 
     public ReportsController(IReportsWebService reportsWebService, ILogger<ReportsController> logger)
     {
-        _reportsWebService = reportsWebService;
-        _logger = logger;
+        _reportsWebService = reportsWebService ?? throw new ArgumentNullException(nameof(reportsWebService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -33,12 +33,12 @@ public class ReportsController : ControllerBase
         try
         {
             var data = await _reportsWebService.ObtenerReporteVentasAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/reports/sales");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -51,12 +51,12 @@ public class ReportsController : ControllerBase
         try
         {
             var data = await _reportsWebService.ObtenerComparativaAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/reports/sales-comparison");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -70,12 +70,12 @@ public class ReportsController : ControllerBase
         try
         {
             var data = await _reportsWebService.ObtenerRentabilidadPorRutaAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/reports/route-profitability");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 }

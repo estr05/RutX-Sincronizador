@@ -148,7 +148,7 @@ public class NotificationWebServiceTests
         var creado = Assert.IsType<NotificationCreateResult>(resultado.Response);
         Assert.Equal(2, creado.CreatedCount);
         store.Verify(s => s.CreateNotificationAsync("seller", 695, It.IsAny<string>(), It.IsAny<string>(), "normal", 1, "admin.coyatoc", "clave-ok", "trace", It.IsAny<CancellationToken>()), Times.Once);
-        store.Verify(s => s.CreateNotificationAsync("seller", 9647, It.IsAny<string>(), It.IsAny<string>(), "normal", 1, "admin.coyatoc", "clave-ok", "trace", It.IsAny<CancellationToken>()), Times.Once);
+        store.Verify(s => s.CreateNotificationAsync("seller", 9647, It.IsAny<string>(), It.IsAny<string>(), "normal", 1, "admin.coyatoc", "", "trace", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

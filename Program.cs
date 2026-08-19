@@ -241,7 +241,16 @@ builder.Services.AddSingleton<IWebSqliteStore>(sp =>
     new WebSqliteStore(webSqliteConnectionString, sp.GetRequiredService<ILogger<WebSqliteStore>>()));
 
 // Configuración JWT (Mauricio)
-var key = builder.Configuration["Jwt:Key"];
+var key = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key no está configurada en appsettings.json. Define una clave JWT de al menos 32 caracteres.");
+var issuer = builder.Configuration["Jwt:Issuer"]
+    ?? throw new InvalidOperationException("Jwt:Issuer no está configurada en appsettings.json.");
+var audience = builder.Configuration["Jwt:Audience"]
+    ?? throw new InvalidOperationException("Jwt:Audience no está configurada en appsettings.json.");
+
+if (key.Length < 32)
+    throw new InvalidOperationException($"Jwt:Key debe tener al menos 32 caracteres (actual: {key.Length}).");
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -251,9 +260,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key!))
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))
         };
     });
 
@@ -302,6 +311,29 @@ var app = builder.Build();
 app.UseMiddleware<WebTraceIdMiddleware>();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseStaticFiles(); // Panel de administracion (wwwroot)
+
+// Guardia de loopback: /admin y /api/v2/admin/* solo responden desde localhost.
+// Contrato v2 §4.2: el panel local no debe publicarse al dominio Web-RutX ni a la red.
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    var isAdminRoute = path.StartsWithSegments("/admin") ||
+                        path.StartsWithSegments("/api/v2/admin");
+
+    if (isAdminRoute)
+    {
+        var remoteIp = context.Connection.RemoteIpAddress;
+        if (remoteIp is null || !System.Net.IPAddress.IsLoopback(remoteIp))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            await context.Response.WriteAsJsonAsync(new { error = "not found" });
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

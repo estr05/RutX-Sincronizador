@@ -36,10 +36,10 @@ public class NotificationsController : ControllerBase
             var resultado = await _notificationWebService.ListAsync(query, WebClaims.Zonas(User), ct);
 
             if (!resultado.IsSuccess)
-                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(resultado.Code!, resultado.Message!));
+                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
 
             var lista = (WebListResponse<NotificationListItemDto>)resultado.Response!;
-            return Ok(WebEnvelope.Success(
+            return Ok(WebEnvelope.Success(HttpContext,
                 lista.Data,
                 meta: new { page = lista.Meta.Page, per_page = lista.Meta.PerPage, total = lista.Meta.Total, last_page = lista.Meta.LastPage },
                 filters: lista.Filters));
@@ -47,7 +47,7 @@ public class NotificationsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/notifications");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -58,12 +58,12 @@ public class NotificationsController : ControllerBase
         try
         {
             var total = await _notificationWebService.CountActiveAsync(WebClaims.Zonas(User), ct);
-            return Ok(WebEnvelope.Success(new NotificationCountDto(total)));
+            return Ok(WebEnvelope.Success(HttpContext, new NotificationCountDto(total)));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/notifications/count");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -74,12 +74,16 @@ public class NotificationsController : ControllerBase
         try
         {
             var idempotencyKey = Request.Headers["Idempotency-Key"].ToString();
+            if (string.IsNullOrWhiteSpace(idempotencyKey))
+                return StatusCode(StatusCodes.Status422UnprocessableEntity,
+                    WebEnvelope.Error(HttpContext, "VALIDATION_ERROR", "El encabezado Idempotency-Key es obligatorio para emitir notificaciones."));
+
             var traceId = HttpContext.Items["trace_id"]?.ToString();
             var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
 
             var resultado = await _notificationWebService.CreateAsync(
                 request,
-                string.IsNullOrWhiteSpace(idempotencyKey) ? null : idempotencyKey,
+                idempotencyKey,
                 WebClaims.UserId(User),
                 WebClaims.Username(User),
                 WebClaims.Zonas(User),
@@ -88,14 +92,14 @@ public class NotificationsController : ControllerBase
                 ct);
 
             if (!resultado.IsSuccess)
-                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(resultado.Code!, resultado.Message!));
+                return StatusCode(StatusCodePara(resultado.Code), WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
 
-            return StatusCode(StatusCodes.Status201Created, WebEnvelope.Success(resultado.Response!));
+            return StatusCode(StatusCodes.Status201Created, WebEnvelope.Success(HttpContext, resultado.Response!));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en POST /api/v2/web/notifications");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 

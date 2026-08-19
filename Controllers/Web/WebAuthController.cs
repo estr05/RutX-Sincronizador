@@ -45,11 +45,11 @@ public class WebAuthController : ControllerBase
                 "ACCOUNT_DISABLED" => StatusCodes.Status403Forbidden,
                 _ => StatusCodes.Status401Unauthorized,
             };
-            return StatusCode(status, WebEnvelope.Error(resultado.Code!, resultado.Message!));
+            return StatusCode(status, WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
         }
 
         _logger.LogInformation("Login web exitoso para '{Username}' desde {IP}", request.Username?.Trim(), ip);
-        return Ok(WebEnvelope.Success(resultado.Response!));
+        return Ok(WebEnvelope.Success(HttpContext, resultado.Response!));
     }
 
     [HttpGet("me")]
@@ -59,9 +59,9 @@ public class WebAuthController : ControllerBase
         var resultado = _authService.Me(User);
 
         if (!resultado.IsSuccess)
-            return Unauthorized(WebEnvelope.Error(resultado.Code!, resultado.Message!));
+            return Unauthorized(WebEnvelope.Error(HttpContext, resultado.Code!, resultado.Message!));
 
-        return Ok(WebEnvelope.Success(resultado.Response!));
+        return Ok(WebEnvelope.Success(HttpContext, resultado.Response!));
     }
 
     [HttpPost("logout")]

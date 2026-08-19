@@ -20,8 +20,8 @@ public class DashboardController : ControllerBase
 
     public DashboardController(IDashboardWebService dashboardWebService, ILogger<DashboardController> logger)
     {
-        _dashboardWebService = dashboardWebService;
-        _logger = logger;
+        _dashboardWebService = dashboardWebService ?? throw new ArgumentNullException(nameof(dashboardWebService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -33,12 +33,12 @@ public class DashboardController : ControllerBase
         try
         {
             var data = await _dashboardWebService.ObtenerResumenAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, meta: new { last_sync_at = data.Meta.LastSyncAt, currency = data.Meta.Currency }, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, meta: new { last_sync_at = data.Meta.LastSyncAt, currency = data.Meta.Currency }, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/dashboard");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -51,12 +51,12 @@ public class DashboardController : ControllerBase
         try
         {
             var data = await _dashboardWebService.ObtenerSerieVentasAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/dashboard/sales-series");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 }

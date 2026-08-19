@@ -61,7 +61,7 @@ public sealed class InventoryWebService : IInventoryWebService
             if (almacen is null)
                 return WebInventoryResult.Error("NOT_FOUND", "La ruta no tiene un almacén de operación reciente (últimos 90 días).");
 
-            var (ano, mes) = ResolverPeriodo(query.AsOf, conn, almacen.Value, cancellationToken);
+            var (ano, mes) = await ResolverPeriodoAsync(query.AsOf, conn, almacen.Value, cancellationToken);
 
             var filas = await conn.QueryAsync<SaldoFila>(
                 new CommandDefinition(
@@ -149,7 +149,7 @@ public sealed class InventoryWebService : IInventoryWebService
     /// <summary>
     /// Periodo as_of: por defecto el último periodo con ledger del almacén.
     /// </summary>
-    private static (int Ano, int Mes) ResolverPeriodo(
+    private static async Task<(int Ano, int Mes)> ResolverPeriodoAsync(
         string? asOf,
         FbConnection conn,
         int almacen,
@@ -161,7 +161,7 @@ public sealed class InventoryWebService : IInventoryWebService
             return (int.Parse(partes[0]), int.Parse(partes[1]));
         }
 
-        var ultimo = conn.QueryFirstOrDefaultAsync<(int Ano, int Mes)?>(
+        var ultimo = await conn.QueryFirstOrDefaultAsync<(int Ano, int Mes)?>(
             new CommandDefinition(
                 """
                 SELECT FIRST 1 s.ANO, s.MES
@@ -170,7 +170,7 @@ public sealed class InventoryWebService : IInventoryWebService
                 ORDER BY s.ANO DESC, s.MES DESC
                 """,
                 new { almacen },
-                cancellationToken: cancellationToken)).GetAwaiter().GetResult();
+                cancellationToken: cancellationToken));
 
         return ultimo ?? (DateTime.Today.Year, DateTime.Today.Month);
     }

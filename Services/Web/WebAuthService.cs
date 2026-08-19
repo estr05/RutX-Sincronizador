@@ -98,7 +98,8 @@ public sealed class WebAuthService : IWebAuthService
         if (string.IsNullOrWhiteSpace(username) || !long.TryParse(userId, out var id))
             return WebAuthResult.Error("UNAUTHENTICATED", "Token inválido: identidad incompleta.");
 
-        var sesion = new WebUserSessionDto(id, username, displayName, false, true, roles, permisos, zonas);
+        var mustChange = principal.FindFirst("must_change_password")?.Value == "true";
+        var sesion = new WebUserSessionDto(id, username, displayName, mustChange, true, roles, permisos, zonas);
         return WebAuthResult.Exito(new WebLoginResponse(string.Empty, string.Empty, sesion, roles, permisos, zonas));
     }
 

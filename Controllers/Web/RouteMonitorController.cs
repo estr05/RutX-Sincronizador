@@ -20,8 +20,8 @@ public class RouteMonitorController : ControllerBase
 
     public RouteMonitorController(IRouteMonitoringWebService routeMonitoringWebService, ILogger<RouteMonitorController> logger)
     {
-        _routeMonitoringWebService = routeMonitoringWebService;
-        _logger = logger;
+        _routeMonitoringWebService = routeMonitoringWebService ?? throw new ArgumentNullException(nameof(routeMonitoringWebService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -33,12 +33,12 @@ public class RouteMonitorController : ControllerBase
         try
         {
             var data = await _routeMonitoringWebService.ObtenerMonitoreoAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/route-monitor");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -51,12 +51,12 @@ public class RouteMonitorController : ControllerBase
         try
         {
             var data = await _routeMonitoringWebService.ObtenerDetalleRutaAsync(routeId, ct);
-            return Ok(WebEnvelope.Success(data));
+            return Ok(WebEnvelope.Success(HttpContext, data));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/route-monitor/{RouteId}", routeId);
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 
@@ -69,12 +69,12 @@ public class RouteMonitorController : ControllerBase
         try
         {
             var data = await _routeMonitoringWebService.ObtenerCatalogoRutasAsync(filtros, ct);
-            return Ok(WebEnvelope.Success(data, meta: new { page = 1, per_page = 25, total = data.Count, last_page = 1 }, filters: filtros));
+            return Ok(WebEnvelope.Success(HttpContext, data, meta: new { page = 1, per_page = 25, total = data.Count, last_page = 1 }, filters: filtros));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error en GET /api/v2/web/routes");
-            return StatusCode(500, WebEnvelope.Error("API_UNAVAILABLE", "No se pudo conectar con el servicio."));
+            return StatusCode(500, WebEnvelope.Error(HttpContext, "API_UNAVAILABLE", "No se pudo conectar con el servicio."));
         }
     }
 }

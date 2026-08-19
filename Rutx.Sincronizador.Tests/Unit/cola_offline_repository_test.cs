@@ -12,7 +12,7 @@ public class ColaOfflineRepositoryTest
     {
         var repo = TestDatabaseHelper.CrearBaseDatosEnMemoria();
 
-        // Operacion PENDIENTE normal
+        // Operación PENDIENTE normal.
         var normal = new ColaOperacion
         {
             OperacionId = "op-normal",
@@ -25,7 +25,7 @@ public class ColaOfflineRepositoryTest
         };
         await repo.InsertarAsync(normal);
 
-        // Operacion "colgada": PENDIENTE pero con Lease expirado
+        // Operación PENDIENTE con lease expirado.
         var colgada = new ColaOperacion
         {
             OperacionId = "op-colgada",
@@ -41,7 +41,7 @@ public class ColaOfflineRepositoryTest
         };
         await repo.InsertarAsync(colgada);
 
-        // Operacion en "PROCESANDO" reciente (lease activo)
+        // Operación PENDIENTE con lease activo.
         var reciente = new ColaOperacion
         {
             OperacionId = "op-reciente",
@@ -57,8 +57,10 @@ public class ColaOfflineRepositoryTest
         };
         await repo.InsertarAsync(reciente);
 
-        // Se reclaman las pendientes y las que tienen lease expirado
-        var pendientes = await repo.ReclamarPendientesAsync(limite: 10, leaseDuration: TimeSpan.FromMinutes(2));
+        // Se reclaman las pendientes y las que tienen el lease expirado.
+        var pendientes = await repo.ReclamarPendientesAsync(
+            limite: 10,
+            leaseDuration: TimeSpan.FromMinutes(2));
         var ids = pendientes.Select(p => p.OperacionId).ToList();
 
         Assert.Contains("op-normal", ids);
@@ -67,7 +69,7 @@ public class ColaOfflineRepositoryTest
 
         var liberada = pendientes.Single(p => p.OperacionId == "op-colgada");
         Assert.Equal(EstadoOperacion.PENDIENTE, liberada.Estado);
-        Assert.True(liberada.LeaseUntil >= DateTime.UtcNow); // Lease fue renovado
+        Assert.True(liberada.LeaseUntil >= DateTime.UtcNow); // El lease fue renovado.
         Assert.Equal(1, liberada.Intentos);
         Assert.Equal(5, liberada.MaxIntentos);
     }
@@ -83,7 +85,7 @@ public class ColaOfflineRepositoryTest
             OperacionId = "op-heartbeat",
             TipoOperacion = TipoOperacion.VENTA,
             Payload = "{}",
-            Estado = EstadoOperacion.PENDIENTE, // ya no usa PROCESANDO
+            Estado = EstadoOperacion.PENDIENTE, // El modelo actual no usa PROCESANDO para esta cola.
             Intentos = 1,
             MaxIntentos = 5,
             LeaseUntil = DateTime.UtcNow.AddMinutes(5),
@@ -93,11 +95,11 @@ public class ColaOfflineRepositoryTest
         };
         await repo.InsertarAsync(op);
 
-        // El worker toca el heartbeat, esto debe actualizar LeaseUntil y FechaModificacion
+        // El worker toca el heartbeat; esto debe actualizar LeaseUntil y FechaModificacion.
         await repo.TocarHeartbeatAsync(op.OperacionId);
 
         var pendientes = await repo.ReclamarPendientesAsync(limite: 10);
-        // Aún tiene lease vigente, por lo que Reclamar no debe retornarla
+        // Aún tiene un lease vigente, por lo que Reclamar no debe retornarla.
         Assert.DoesNotContain(pendientes, p => p.OperacionId == "op-heartbeat");
 
         var leida = await repo.ObtenerPorIdAsync(op.OperacionId);
@@ -105,6 +107,7 @@ public class ColaOfflineRepositoryTest
         Assert.Equal(EstadoOperacion.PENDIENTE, leida!.Estado);
         Assert.NotNull(leida.LeaseUntil);
     }
+
     [Fact]
     public async Task TocarHeartbeat_FallaSiLeaseExpiroOEstadoEsCompletado()
     {
@@ -140,15 +143,23 @@ public class ColaOfflineRepositoryTest
         };
         await repo.InsertarAsync(expirada);
 
+        // Se conservan los valores persistidos antes de intentar tocar el heartbeat.
+        var leaseCompletadaInicial = completada.LeaseUntil;
+        var leaseExpiradaInicial = expirada.LeaseUntil;
+
+        // Ninguna de las dos operaciones cumple las condiciones para actualizar el heartbeat:
+        // una está COMPLETADA y la otra tiene el lease expirado.
         await repo.TocarHeartbeatAsync("op-completada");
         await repo.TocarHeartbeatAsync("op-expirada");
 
         var cLeida = await repo.ObtenerPorIdAsync("op-completada");
         Assert.NotNull(cLeida);
-        Assert.True(cLeida!.LeaseUntil < DateTime.UtcNow.AddMinutes(4)); // No se actualizo a +2 min desde ahora
+        Assert.Equal(EstadoOperacion.COMPLETADO, cLeida!.Estado);
+        Assert.Equal(leaseCompletadaInicial, cLeida.LeaseUntil);
 
         var eLeida = await repo.ObtenerPorIdAsync("op-expirada");
         Assert.NotNull(eLeida);
-        Assert.True(eLeida!.LeaseUntil < DateTime.UtcNow.AddMinutes(-4)); // No se actualizo
+        Assert.Equal(EstadoOperacion.PENDIENTE, eLeida!.Estado);
+        Assert.Equal(leaseExpiradaInicial, eLeida.LeaseUntil);
     }
 }

@@ -57,7 +57,7 @@ Máquina de desarrollo                PC del cliente
 | Sistema operativo | Windows 10 u 11 (64 bits) |
 | .NET Runtime 10 | **No necesario**: el paquete que se lleva al cliente (*self-contained*, sección 2.2) ya lo incluye |
 | Servidor Firebird | En ejecución en `localhost:3050`, con la base de Microsip (`.fdb`). **Recomendado: Firebird 2.5 o superior** (versiones soportadas: sección 1, *Versiones de Firebird soportadas*) |
-| Credenciales Firebird | Por defecto `SYSDBA` / `masterkey`; ten las reales a la mano |
+| Credenciales Firebird | Usa credenciales seguras (SEC-01); ten las contraseñas reales a la mano |
 | Puerto 5047 | Libre (lo usa la API del Sincronizador) |
 | Red | La app móvil debe alcanzar esta PC por la red local en `IP:5047` |
 
@@ -215,8 +215,7 @@ proceso en 4 pasos:
 
 1. Haz clic en **Buscar BD…** y selecciona el archivo `.fdb` **de la BD del
    cliente** (ej. `C:\Microsip datos\SU_BD.fdb`).
-2. El asistente verifica la firma del archivo e intenta conectar con
-   `SYSDBA` / `masterkey`.
+2. El asistente verifica la firma del archivo y solicitará usuario y contraseña.
 3. Resultado:
    - 🟢 **Conexión OK** → haz clic en **Siguiente →**.
    - 🔴 **Fallo la conexión** → escribe el usuario y la contraseña reales de la

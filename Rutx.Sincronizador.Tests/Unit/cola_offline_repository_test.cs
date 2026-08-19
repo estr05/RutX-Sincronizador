@@ -105,4 +105,50 @@ public class ColaOfflineRepositoryTest
         Assert.Equal(EstadoOperacion.PENDIENTE, leida!.Estado);
         Assert.NotNull(leida.LeaseUntil);
     }
+    [Fact]
+    public async Task TocarHeartbeat_FallaSiLeaseExpiroOEstadoEsCompletado()
+    {
+        var repo = TestDatabaseHelper.CrearBaseDatosEnMemoria();
+
+        var completada = new ColaOperacion
+        {
+            OperacionId = "op-completada",
+            TipoOperacion = TipoOperacion.VENTA,
+            Payload = "{}",
+            Estado = EstadoOperacion.COMPLETADO,
+            Intentos = 1,
+            MaxIntentos = 5,
+            LeaseUntil = DateTime.UtcNow.AddMinutes(5),
+            SiguienteReintento = DateTime.UtcNow.AddMinutes(-1),
+            FechaCreacion = DateTime.UtcNow,
+            FechaModificacion = DateTime.UtcNow
+        };
+        await repo.InsertarAsync(completada);
+
+        var expirada = new ColaOperacion
+        {
+            OperacionId = "op-expirada",
+            TipoOperacion = TipoOperacion.VENTA,
+            Payload = "{}",
+            Estado = EstadoOperacion.PENDIENTE,
+            Intentos = 1,
+            MaxIntentos = 5,
+            LeaseUntil = DateTime.UtcNow.AddMinutes(-5),
+            SiguienteReintento = DateTime.UtcNow.AddMinutes(-1),
+            FechaCreacion = DateTime.UtcNow,
+            FechaModificacion = DateTime.UtcNow
+        };
+        await repo.InsertarAsync(expirada);
+
+        await repo.TocarHeartbeatAsync("op-completada");
+        await repo.TocarHeartbeatAsync("op-expirada");
+
+        var cLeida = await repo.ObtenerPorIdAsync("op-completada");
+        Assert.NotNull(cLeida);
+        Assert.True(cLeida!.LeaseUntil < DateTime.UtcNow.AddMinutes(4)); // No se actualizo a +2 min desde ahora
+
+        var eLeida = await repo.ObtenerPorIdAsync("op-expirada");
+        Assert.NotNull(eLeida);
+        Assert.True(eLeida!.LeaseUntil < DateTime.UtcNow.AddMinutes(-4)); // No se actualizo
+    }
 }

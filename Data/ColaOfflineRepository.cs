@@ -213,7 +213,10 @@ public class ColaOfflineRepository : IColaOfflineRepository
             cmd.CommandText = @"
                 UPDATE rutx_cola_operaciones
                 SET fecha_modificacion = @Ahora, lease_until = @Lease
-                WHERE operacion_id = @OperacionId";
+                WHERE operacion_id = @OperacionId 
+                  AND estado = 'PENDIENTE' 
+                  AND lease_until IS NOT NULL 
+                  AND lease_until >= @Ahora";
             cmd.Parameters.AddWithValue("@OperacionId", operacionId);
             var ahora = DateTime.UtcNow;
             cmd.Parameters.AddWithValue("@Ahora", ahora.ToString("O"));

@@ -31,6 +31,10 @@ public class DbCompareController : ControllerBase
 
     private string GetConnStr(string dbName)
     {
+        // Whitelist estricta para evitar Inyeccion / Path Traversal
+        if (dbName != "CHOCOLATES" && dbName != "COYATOC")
+            throw new ArgumentException("Base de datos no permitida.");
+            
         var baseConn = _configuration.GetConnectionString("FirebirdConnection") ?? "";
         return baseConn.Replace("CHOCOLATES.fdb", $"{dbName}.fdb");
     }
@@ -187,95 +191,10 @@ public class DbCompareController : ControllerBase
     [HttpPost("asignar-ruta")]
     public async Task<IActionResult> AsignarClientesARuta([FromBody] AsignarRutaRequest request)
     {
-        using var connection = new FbConnection(GetConnStr("CHOCOLATES"));
-        try { await connection.OpenAsync(); }
-        catch (Exception ex) { return Ok(new { exito = false, error = ex.Message }); }
-
-        var insertados = new List<int>();
-        var errores = new List<Dictionary<string, object>>();
-
-        // Descubrir el generator de RUTAS_DET_ID
-        bool useGenerator = true;
-        string generatorName = "GEN_RUTAS_DET";
-        int nextId = 0;
-
-        try
-        {
-            var gen = await connection.QueryFirstOrDefaultAsync<string>(@"
-                SELECT RDB$GENERATOR_NAME FROM RDB$GENERATORS
-                WHERE RDB$GENERATOR_NAME LIKE '%RUTAS_DET%'
-                ORDER BY RDB$GENERATOR_NAME");
-            if (gen != null)
-            {
-                generatorName = gen.Trim();
-            }
-            else
-            {
-                // Sin generator: usar MAX+1
-                useGenerator = false;
-                nextId = await connection.ExecuteScalarAsync<int>(
-                    "SELECT COALESCE(MAX(RUTA_DET_ID), 0) + 1 FROM RUTAS_DET");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error al descubrir generator para RUTAS_DET, usando MAX+1");
-            useGenerator = false;
-            nextId = await connection.ExecuteScalarAsync<int>(
-                "SELECT COALESCE(MAX(RUTA_DET_ID), 0) + 1 FROM RUTAS_DET");
-        }
-
-        int posicion = request.PosicionInicial;
-        foreach (int clienteId in request.ClienteIds)
-        {
-            try
-            {
-                string sql;
-                if (useGenerator)
-                {
-                    sql = $@"
-                        INSERT INTO RUTAS_DET (RUTA_DET_ID, RUTA_ID, CLIENTE_ID, DIA, DIA_POSICION)
-                        VALUES (GEN_ID({generatorName}, 1), @RutaId, @ClienteId, @Dia, @Posicion)";
-                }
-                else
-                {
-                    sql = @"
-                        INSERT INTO RUTAS_DET (RUTA_DET_ID, RUTA_ID, CLIENTE_ID, DIA, DIA_POSICION)
-                        VALUES (@NextId, @RutaId, @ClienteId, @Dia, @Posicion)";
-                }
-
-                var parameters = new
-                {
-                    RutaId = request.RutaId,
-                    ClienteId = clienteId,
-                    Dia = request.Dia,
-                    Posicion = posicion,
-                    NextId = nextId
-                };
-
-                await connection.ExecuteAsync(sql, parameters);
-                insertados.Add(clienteId);
-                posicion++;
-                if (!useGenerator) nextId++;
-            }
-            catch (Exception ex)
-            {
-                errores.Add(new Dictionary<string, object>
-                {
-                    ["cliente_id"] = clienteId,
-                    ["error"] = ex.Message
-                });
-            }
-        }
-
-        return Ok(new
-        {
-            exito = errores.Count == 0,
-            total_solicitados = request.ClienteIds.Count,
-            total_insertados = insertados.Count,
-            insertados,
-            errores
-        });
+        // [SEGURIDAD] Sprint 4: Mutación deshabilitada
+        // RutX no ejecutará DDL ni mutaciones administrativas sobre el esquema Microsip.
+        _logger.LogWarning("Intento de mutación administrativa bloqueado (AsignarClientesARuta).");
+        return StatusCode(403, new { exito = false, error = "Mutación administrativa no aprobada por contrato." });
     }
 
     public record AsignarRutaRequest

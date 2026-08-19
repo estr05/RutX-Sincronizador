@@ -4,6 +4,7 @@ using Xunit;
 
 namespace Rutx.Sincronizador.Tests.Integration;
 
+[Trait("Category", "Integration")]
 public class ColaRepositoryTests
 {
     [Fact]

@@ -156,38 +156,21 @@ if (connectionString != null && connectionString.Contains(downloadsDbPath) && !S
 // -------------------------------------------------------------------
 
 // ────────────────────────────────────────────────────────────────────
-// Validacion de secretos al arranque
+// Validacion de secretos al arranque (Produccion)
 // ────────────────────────────────────────────────────────────────────
-// La clave JWT nunca puede ser el placeholder literal (en ningún entorno),
-// porque los tests unitarios no necesitan un JWT real para ejecutarse.
+Rutx.Sincronizador.Security.ProductionConfigurationValidator.Validate(builder.Configuration, builder.Environment);
+
+// Advertencias para entornos no-produccion
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "";
-const string JwtPlaceholder = "CHANGE_ME_JWT_SECRET_AT_LEAST_32_CHARS";
-if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey == JwtPlaceholder)
-    throw new InvalidOperationException(
-        "[CONFIGURACION] Jwt:Key contiene el valor de demostración. " +
-        "Define la variable de entorno Jwt__Key con una clave aleatoria " +
-        "de al menos 32 caracteres (ver Docs/CONFIGURACION_PRODUCCION.md).");
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Contains("CHANGE_ME"))
+    Console.Error.WriteLine("[AVISO] Jwt:Key contiene un placeholder. Las firmas fallarán si se intentan usar.");
 
-// La conexión Firebird: en Production, rechazar el placeholder.
-// En Development/Test, solo advertir (permite tests unitarios sin Firebird real).
 var fbConnectionString = builder.Configuration.GetConnectionString("FirebirdConnection") ?? "";
-const string FbPlaceholder = "CHANGE_ME";
-var isProduction = string.Equals(
-    builder.Configuration["ASPNETCORE_ENVIRONMENT"] ?? builder.Environment.EnvironmentName,
-    "Production", StringComparison.OrdinalIgnoreCase);
-
-if (fbConnectionString.Contains(FbPlaceholder, StringComparison.OrdinalIgnoreCase))
+if (fbConnectionString.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
 {
-    if (isProduction)
-        throw new InvalidOperationException(
-            "[CONFIGURACION] ConnectionStrings:FirebirdConnection contiene un placeholder. " +
-            "En produccion define la variable de entorno " +
-            "ConnectionStrings__FirebirdConnection con la cadena real " +
-            "(ver Docs/CONFIGURACION_PRODUCCION.md).");
-    else
-        Console.Error.WriteLine(
-            "[AVISO] FirebirdConnection contiene un placeholder. " +
-            "Los endpoints que consulten Firebird fallarán hasta configurar la conexion real.");
+    Console.Error.WriteLine(
+        "[AVISO] FirebirdConnection contiene un placeholder. " +
+        "Los endpoints que consulten Firebird fallarán hasta configurar la conexion real.");
 }
 // -------------------------------------------------------------------
 builder.Services.AddControllers()

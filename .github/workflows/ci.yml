@@ -1,7 +1,7 @@
 # ============================================================
 # CI — RutX-Sincronizador
 # Ejecuta en cada push y PR hacia fix/sprint4-secrets-firebird y main.
-# Pasos: restore → build → secret-scan → unit tests
+# Pasos: secret-scan (ubuntu) -> restore → build → unit tests (windows)
 # ============================================================
 name: "Sincronizador CI"
 
@@ -12,45 +12,45 @@ on:
     branches: ["main", "fix/sprint4-secrets-firebird"]
 
 jobs:
+  secret-scan:
+    name: "Secret Scan"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        continue-on-error: false
+
   build-and-test:
     name: ".NET Build & Test"
     runs-on: windows-latest
+    needs: secret-scan
     defaults:
       run:
         shell: bash
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0          # necesario para el escaneo de secretos
 
-      # ── 2. Configurar .NET 10 ─────────────────────────────────────
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.x"
 
-      # ── 3. Restaurar dependencias ─────────────────────────────────
       - name: Restore dependencies
         run: dotnet restore Rutx.Sincronizador.csproj
 
-      # ── 4. Build (modo Release) ───────────────────────────────────
       - name: Build (Release)
         run: dotnet build Rutx.Sincronizador.csproj --configuration Release --no-restore
 
-      # ── 5. Escaneo de secretos hard-codeados ─────────────────────
-      # Detecta patrones de credenciales y keys antes de que lleguen
-      # al artefacto. Falla el pipeline si encuentra hits.
-      - name: Secret scan (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}   # requerido solo para repos privados
-        continue-on-error: false
-
-      # ── 6. Escaneo adicional: buscar "masterkey" en código fuente ─
       - name: Check for hardcoded masterkey in source
         run: |
           set -euo pipefail
@@ -78,12 +78,12 @@ jobs:
 
           echo 'OK: no hay uso operativo de masterkey.'
 
-      # ── 7. Ejecutar tests unitarios ───────────────────────────────
       - name: Run unit tests
         run: |
           if [ -d "Rutx.Sincronizador.Tests" ]; then
             dotnet test Rutx.Sincronizador.Tests \
               --configuration Release \
+              --filter "Category!=Integration" \
               --logger "console;verbosity=normal" \
               --results-directory ./TestResults \
               -- RunConfiguration.TestSessionTimeout=120000
@@ -91,7 +91,6 @@ jobs:
             echo "No se encontró el directorio de tests. Omitiendo."
           fi
 
-      # ── 8. Publicar resultados de tests ──────────────────────────
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

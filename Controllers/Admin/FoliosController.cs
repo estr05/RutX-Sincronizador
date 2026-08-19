@@ -8,9 +8,9 @@ namespace Rutx.Sincronizador.Controllers.Admin;
 /// <summary>
 /// Endpoints de mantenimiento de folios (FOLIOS_CAJAS).
 /// </summary>
-[Authorize]
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
-[Route("api/v1/folios")]
+[Route("api/v2/admin/[controller]")]
 public class FoliosController : ControllerBase
 {
     private readonly IFolioService _folioService;

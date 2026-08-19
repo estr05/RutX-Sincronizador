@@ -15,9 +15,9 @@ using Microsoft.Extensions.Logging;
 
 namespace Rutx.Sincronizador.Controllers.Admin;
 
-[Authorize]
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
-[Route("api/dbcompare")]
+[Route("api/v2/admin/[controller]")]
 public class DbCompareController : ControllerBase
 {
     private readonly IConfiguration _configuration;

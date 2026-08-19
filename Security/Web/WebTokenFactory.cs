@@ -41,11 +41,12 @@ public static class WebTokenFactory
         foreach (var zona in sesion.ZoneIds)
             claims.Add(new Claim("zone_ids", zona.ToString()));
 
+        var expirationMinutes = configuration.GetValue<int>("Jwt:ExpirationMinutes", 480);
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],
             audience: configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(VigenciaHoras),
+            expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
             signingCredentials: creds);
 
         return new JwtSecurityTokenHandler().WriteToken(token);

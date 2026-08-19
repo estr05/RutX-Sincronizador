@@ -12,6 +12,7 @@ namespace Rutx.Sincronizador.Controllers.Web;
 /// Rutas nuevas bajo /api/v2/admin/* — NO tocan el contrato movil /api/v1/*.
 /// Sin autenticacion (solo escucha local); revisar si se expone fuera de localhost.
 /// </summary>
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
 [Route("api/v2/admin")]
 public class AdminController : ControllerBase

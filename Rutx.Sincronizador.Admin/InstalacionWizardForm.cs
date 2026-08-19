@@ -9,7 +9,7 @@ namespace Rutx.Sincronizador.Admin;
 /// Asistente de instalacion estandarizada del sincronizador (4 pasos):
 ///   1. Ubicacion   -> carpeta destino (default C:\ProgramData\RUTX\Sincronizador)
 ///   2. BD + creds  -> elegir el .fdb, verificar firma y probar conexion
-///                     (intenta SYSDBA/masterkey; si falla, pide credenciales)
+///                     (si la conexión inicial falla, pide credenciales válidas)
 ///   3. Instalar    -> copia ejecutables, genera appsettings.json y marcador,
 ///                     arranca el sync con la raiz como WorkingDirectory y
 ///                     ejecuta la auditoria EN VIVO (contadores 🔴🟡🟢)
@@ -334,7 +334,7 @@ public class InstalacionWizardForm : Form
 
             try
             {
-                // Verificar firma y probar credenciales por defecto (SYSDBA/masterkey)
+                // Verificar firma y probar credenciales configuradas o pedir nuevas
                 await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
             }
             catch (Exception ex)

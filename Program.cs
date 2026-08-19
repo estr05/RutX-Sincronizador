@@ -87,7 +87,11 @@ builder.Host.UseWindowsService(options =>
     options.ServiceName = "RutxSincronizador";
 });
 
-builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://0.0.0.0:5047");
+// Binding: localhost por defecto (defensa en profundidad junto al middleware
+// de loopback). En entorno de red, la variable ASPNETCORE_URLS puede
+// sobreescribir este valor, pero el middleware de loopback sigue bloqueando
+// /admin y /api/v2/admin/* desde IPs no-locales.
+builder.WebHost.UseUrls(Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://localhost:5047");
 
 // Logging a archivo (ademas de consola en dev)
 builder.Logging.ClearProviders();

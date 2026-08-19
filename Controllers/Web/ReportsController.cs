@@ -10,7 +10,7 @@ namespace Rutx.Sincronizador.Controllers.Web;
 /// Rutas bajo /api/v2/web/* — NO tocan el contrato móvil /api/v1/*.
 /// Flujo: Controller Web → Interface Web → Service Web → consulta parametrizada.
 /// </summary>
-[Authorize]
+[Authorize(Policy = "web.any")]
 [ApiController]
 [Route("api/v2/web/reports")]
 public class ReportsController : ControllerBase

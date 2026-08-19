@@ -84,4 +84,25 @@ public interface IWebSqliteStore
         string idempotencyKey,
         string? traceId,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Crea un lote de avisos en una ÚNICA transacción SQLite (atomicidad de lote).
+    /// Devuelve las filas creadas en orden. Si la transacción falla, NO crea ninguna fila
+    /// y lanza excepción (rollback automático).
+    /// </summary>
+    Task<IReadOnlyList<WebNotificationRow>> CreateNotificationsBatchAsync(
+        IReadOnlyList<NotificationBatchItem> items,
+        CancellationToken cancellationToken = default);
 }
+
+/// <summary>Datos para una fila del lote de notificaciones.</summary>
+public sealed record NotificationBatchItem(
+    string TargetType,
+    int TargetId,
+    string Title,
+    string Body,
+    string Priority,
+    long? SenderUserId,
+    string? SenderUsername,
+    string? IdempotencyKey,
+    string? TraceId);

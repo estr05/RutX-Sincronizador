@@ -322,6 +322,57 @@ public sealed class WebSqliteStore : IWebSqliteStore
         return new WebNotificationRow(id, targetType, targetId, title, body, priority, "active", senderUserId, senderUsername, idempotencyKey, traceId, creado);
     }
 
+    public async Task<IReadOnlyList<WebNotificationRow>> CreateNotificationsBatchAsync(
+        IReadOnlyList<NotificationBatchItem> items,
+        CancellationToken cancellationToken = default)
+    {
+        if (items.Count == 0)
+            return Array.Empty<WebNotificationRow>();
+
+        var creado = DateTime.UtcNow.ToString("o");
+        var resultados = new List<WebNotificationRow>(items.Count);
+
+        await using var conn = await AbrirAsync(cancellationToken);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                await using var cmd = conn.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO web_notifications (target_type, target_id, title, body, priority, status,
+                                                   sender_user_id, sender_username, idempotency_key, trace_id, created_at)
+                    VALUES ($targetType, $targetId, $title, $body, $priority, 'active',
+                            $senderUserId, $senderUsername, $key, $traceId, $creado);
+                    SELECT last_insert_rowid();
+                    """;
+                cmd.Parameters.AddWithValue("$targetType", item.TargetType);
+                cmd.Parameters.AddWithValue("$targetId", item.TargetId);
+                cmd.Parameters.AddWithValue("$title", item.Title);
+                cmd.Parameters.AddWithValue("$body", item.Body);
+                cmd.Parameters.AddWithValue("$priority", item.Priority);
+                cmd.Parameters.AddWithValue("$senderUserId", (object?)item.SenderUserId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$senderUsername", (object?)item.SenderUsername ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$key", (object?)item.IdempotencyKey ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$traceId", (object?)item.TraceId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$creado", creado);
+                var id = (long)(await cmd.ExecuteScalarAsync(cancellationToken) ?? 0L);
+                resultados.Add(new WebNotificationRow(id, item.TargetType, item.TargetId, item.Title, item.Body, item.Priority, "active", item.SenderUserId, item.SenderUsername, item.IdempotencyKey, item.TraceId, creado));
+            }
+
+            await tx.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return resultados;
+    }
+
     /// <summary>
     /// Construye el WHERE de la bandeja. seller/zone restringen el alcance del
     /// usuario (listas vacías = alcance total); NULL = sin restricción.

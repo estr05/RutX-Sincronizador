@@ -109,31 +109,25 @@ public sealed class NotificationWebService : INotificationWebService
             return WebNotificationResult.Error("IDEMPOTENCY_CONFLICT", "Esta Idempotency-Key ya fue utilizada para una emisión previa.");
         }
 
-        var creadas = new List<long>();
-        var first = true;
-        foreach (var targetId in request.TargetIds.Distinct())
-        {
-            var fila = await _store.CreateNotificationAsync(
-                request.TargetType,
-                targetId,
-                title,
-                body,
-                request.Priority,
-                senderUserId,
-                senderUsername,
-                first ? idempotencyKey : string.Empty,
-                traceId,
-                cancellationToken);
-            creadas.Add(fila.Id);
-            first = false;
-        }
+        var batchItems = request.TargetIds.Distinct().Select((targetId, idx) => new NotificationBatchItem(
+            request.TargetType,
+            targetId,
+            title,
+            body,
+            request.Priority,
+            senderUserId,
+            senderUsername,
+            idx == 0 ? idempotencyKey : string.Empty,
+            traceId)).ToList();
+
+        var filas = await _store.CreateNotificationsBatchAsync(batchItems, cancellationToken);
 
         _logger.LogInformation("Notificaciones emitidas ({Count}) por '{Username}' (type={Type}, key={Key})",
-            creadas.Count, senderUsername, request.TargetType, idempotencyKey);
+            filas.Count, senderUsername, request.TargetType, idempotencyKey);
 
         return WebNotificationResult.Exito(new NotificationCreateResult(
-            creadas.Count,
-            creadas,
+            filas.Count,
+            filas.Select(f => f.Id).ToList(),
             request.TargetType));
     }
 

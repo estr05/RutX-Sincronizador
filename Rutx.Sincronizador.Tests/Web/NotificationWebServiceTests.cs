@@ -49,7 +49,7 @@ public class NotificationWebServiceTests
 
         Assert.False(resultado.IsSuccess);
         Assert.Equal("IDEMPOTENCY_CONFLICT", resultado.Code);
-        store.Verify(s => s.CreateNotificationAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        store.Verify(s => s.CreateNotificationsBatchAsync(It.IsAny<IReadOnlyList<NotificationBatchItem>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class NotificationWebServiceTests
 
         Assert.False(resultado.IsSuccess);
         Assert.Equal("FORBIDDEN_ZONE", resultado.Code);
-        store.Verify(s => s.CreateNotificationAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        store.Verify(s => s.CreateNotificationsBatchAsync(It.IsAny<IReadOnlyList<NotificationBatchItem>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -112,8 +112,9 @@ public class NotificationWebServiceTests
             .Setup(s => s.FindNotificationByIdempotencyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((WebNotificationRow?)null);
         store
-            .Setup(s => s.CreateNotificationAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WebNotificationRow(1, "zone", 3795, "Aviso", "", "normal", "active", 1, "admin.coyatoc", "clave-ok", "trace", "2026-08-16"));
+            .Setup(s => s.CreateNotificationsBatchAsync(It.IsAny<IReadOnlyList<NotificationBatchItem>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<NotificationBatchItem> items, CancellationToken _) =>
+                items.Select((it, i) => new WebNotificationRow(i + 1, it.TargetType, it.TargetId, it.Title, it.Body, it.Priority, "active", it.SenderUserId, it.SenderUsername, it.IdempotencyKey, it.TraceId, "2026-08-18")).ToList());
 
         var servicio = CrearServicio(store.Object);
 
@@ -134,8 +135,9 @@ public class NotificationWebServiceTests
             .Setup(s => s.FindNotificationByIdempotencyAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((WebNotificationRow?)null);
         store
-            .Setup(s => s.CreateNotificationAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<long?>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new WebNotificationRow(1, "seller", 695, "Reunión", "Viernes 9:00", "normal", "active", 1, "admin.coyatoc", "clave-ok", "trace", "2026-08-16"));
+            .Setup(s => s.CreateNotificationsBatchAsync(It.IsAny<IReadOnlyList<NotificationBatchItem>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((IReadOnlyList<NotificationBatchItem> items, CancellationToken _) =>
+                items.Select((it, i) => new WebNotificationRow(i + 1, it.TargetType, it.TargetId, it.Title, it.Body, it.Priority, "active", it.SenderUserId, it.SenderUsername, it.IdempotencyKey, it.TraceId, "2026-08-18")).ToList());
 
         var servicio = CrearServicio(store.Object);
         var ids = new[] { 695, 9647, 695 };
@@ -147,8 +149,12 @@ public class NotificationWebServiceTests
         // ids.Distinct() → 2 filas.
         var creado = Assert.IsType<NotificationCreateResult>(resultado.Response);
         Assert.Equal(2, creado.CreatedCount);
-        store.Verify(s => s.CreateNotificationAsync("seller", 695, It.IsAny<string>(), It.IsAny<string>(), "normal", 1, "admin.coyatoc", "clave-ok", "trace", It.IsAny<CancellationToken>()), Times.Once);
-        store.Verify(s => s.CreateNotificationAsync("seller", 9647, It.IsAny<string>(), It.IsAny<string>(), "normal", 1, "admin.coyatoc", "", "trace", It.IsAny<CancellationToken>()), Times.Once);
+        store.Verify(s => s.CreateNotificationsBatchAsync(
+            It.Is<IReadOnlyList<NotificationBatchItem>>(items =>
+                items.Count == 2 &&
+                items[0].TargetType == "seller" && items[0].TargetId == 695 && items[0].IdempotencyKey == "clave-ok" &&
+                items[1].TargetType == "seller" && items[1].TargetId == 9647 && items[1].IdempotencyKey == ""),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

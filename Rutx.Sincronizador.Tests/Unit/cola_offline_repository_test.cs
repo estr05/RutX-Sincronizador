@@ -155,11 +155,13 @@ public class ColaOfflineRepositoryTest
         var cLeida = await repo.ObtenerPorIdAsync("op-completada");
         Assert.NotNull(cLeida);
         Assert.Equal(EstadoOperacion.COMPLETADO, cLeida!.Estado);
-        Assert.Equal(leaseCompletadaInicial, cLeida.LeaseUntil);
+        var cLeaseUtc = cLeida.LeaseUntil!.Value.Kind == DateTimeKind.Utc ? cLeida.LeaseUntil.Value : cLeida.LeaseUntil.Value.ToUniversalTime();
+        Assert.Equal(leaseCompletadaInicial.Value.Ticks, cLeaseUtc.Ticks);
 
         var eLeida = await repo.ObtenerPorIdAsync("op-expirada");
         Assert.NotNull(eLeida);
         Assert.Equal(EstadoOperacion.PENDIENTE, eLeida!.Estado);
-        Assert.Equal(leaseExpiradaInicial, eLeida.LeaseUntil);
+        var eLeaseUtc = eLeida.LeaseUntil!.Value.Kind == DateTimeKind.Utc ? eLeida.LeaseUntil.Value : eLeida.LeaseUntil.Value.ToUniversalTime();
+        Assert.Equal(leaseExpiradaInicial.Value.Ticks, eLeaseUtc.Ticks);
     }
 }

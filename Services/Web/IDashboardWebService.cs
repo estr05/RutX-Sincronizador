@@ -1,0 +1,16 @@
+using Rutx.Sincronizador.Models.Web;
+
+namespace Rutx.Sincronizador.Services.Web;
+
+/// <summary>
+/// Contrato de consultas del tablero web (contrato v2 §6.1).
+/// Flujo obligatorio: Controller Web → Interface Web → Service Web → consulta parametrizada.
+/// </summary>
+public interface IDashboardWebService
+{
+    /// <summary>GET /api/v2/web/dashboard → DashboardSummaryResponse (7 KPIs + meta).</summary>
+    Task<DashboardSummaryResponse> ObtenerResumenAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+
+    /// <summary>GET /api/v2/web/dashboard/sales-series → SalesSeriesResponse.</summary>
+    Task<SalesSeriesResponse> ObtenerSerieVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+}

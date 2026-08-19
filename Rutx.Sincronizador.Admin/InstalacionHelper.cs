@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace Rutx.Sincronizador.Admin;
 
@@ -24,11 +26,14 @@ public class InstalacionInfo
 ///   C:\ProgramData\RUTX\Sincronizador\
 ///   ├── Rutx.Sincronizador.exe  (y DLLs del sync)
 ///   ├── wwwroot\                (panel /admin)
-///   ├── appsettings.json        (config: BD, usuario, password, IDs)
-///   ├── Data\                   (cola SQLite — se auto-crea tambien)
-///   ├── Logs\                   (bitacora opcional)
+///   ├── appsettings.json        (config sin contraseña real)
+///   ├── Logs\                   (bitacora de la raiz del exe)
 ///   ├── backups\                (respaldos .bak del panel web)
 ///   └── instalacion.json        (marcador leido por el launcher)
+///
+/// La BD complementaria (RUTX_COMPLEMENTARIA.db) y las fotos viven en
+/// C:\Microsip Extras\ (ver InstalacionPaths). El exe no escribe dentro
+/// de C:\Microsip Datos\ (exclusivo de Firebird/Microsip).
 ///
 /// Layout plano: ContentRootPath = AppContext.BaseDirectory = raiz.
 /// El exe, appsettings y wwwroot viven juntos en la raiz.
@@ -40,13 +45,14 @@ public static class InstalacionHelper
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "RUTX", "Sincronizador");
 
-    // Subcarpetas que se crean en la raiz (junto al exe)
-    private static readonly string[] CarpetasRaiz = { "wwwroot", "Data", "Logs", "backups" };
+    // Subcarpetas que se crean en la raiz (junto al exe).
+    // "Data" se elimina: la BD complementaria vive en C:\Microsip Extras\
+    private static readonly string[] CarpetasRaiz = { "wwwroot", "Logs", "backups" };
 
     // Archivos que NO se copian del folder de build a la raiz
     private static readonly string[] ExcluirPatrones =
     {
-        "Data",                  // cola SQLite: es por-instalacion
+        "Data",                  // BD complementaria: vive en Microsip Extras
         "wwwroot",               // se copia aparte a la raiz
         "appsettings",           // se genera fresco en la raiz
         "auditoria_resultado",   // resultado previo, irrelevante
@@ -58,6 +64,11 @@ public static class InstalacionHelper
     /// Ejecuta la instalacion completa. Devuelve la InstalacionInfo creada.
     /// Lanza excepcion con mensaje claro si algo falla a mitad (para que el
     /// wizard lo muestre y no deje una instalacion a medias sin avisar).
+    ///
+    /// SEGURIDAD: la contraseña se usa SOLO para la prueba de conexion en el
+    /// wizard. El appsettings.json generado nunca contiene la contraseña real;
+    /// debe proveerla en produccion mediante la variable de entorno
+    /// ConnectionStrings__FirebirdConnection (ver CONFIGURACION_PRODUCCION.md).
     /// </summary>
     public static InstalacionInfo Instalar(string raiz, string rutaFdb, string usuario, string password,
         string carpetaFuenteSync)
@@ -76,30 +87,38 @@ public static class InstalacionHelper
         if (string.IsNullOrWhiteSpace(Path.GetPathRoot(raiz)))
             throw new InvalidOperationException("La ruta de instalacion no es valida: " + raiz);
 
-        // ---- 2. Crear estructura ----
+        // ---- 2. Crear estructura del exe ----
         Directory.CreateDirectory(raiz);
         foreach (var carpeta in CarpetasRaiz)
             Directory.CreateDirectory(Path.Combine(raiz, carpeta));
 
-        // ---- 3. Copiar ejecutables (exe + DLLs) directo a la raiz ----
+        // ---- 3. Crear estructura de C:\Microsip Extras\ (idempotente) ----
+        CrearEstructuraMicrosipExtras();
+
+        // ---- 4. Migrar archivos legacy si existen (no borrar, solo respaldar) ----
+        MigrarBdcLegada(raiz);
+
+        // ---- 5. Copiar ejecutables (exe + DLLs) directo a la raiz ----
         CopiarDirectorio(carpetaFuenteSync, raiz);
 
-        // ---- 4. Copiar wwwroot a la raiz ----
+        // ---- 6. Copiar wwwroot a la raiz ----
         var wwwrootOrigen = Path.Combine(carpetaFuenteSync, "wwwroot");
         var wwwrootDestino = Path.Combine(raiz, "wwwroot");
         if (Directory.Exists(wwwrootOrigen))
             CopiarDirectorio(wwwrootOrigen, wwwrootDestino);
 
-        // ---- 5. Generar appsettings.json en la raiz (plantilla + BD elegida) ----
+        // ---- 7. Generar appsettings.json en la raiz ----
+        // NOTA: la contraseña real NO se persiste; debe configurarse con la
+        // variable de entorno ConnectionStrings__FirebirdConnection en produccion.
         var plantilla = Path.Combine(carpetaFuenteSync, "appsettings.json");
         if (!File.Exists(plantilla))
             throw new InvalidOperationException(
                 "No se encontro la plantilla appsettings.json en: " + plantilla);
 
         var rutaAppSettings = Path.Combine(raiz, "appsettings.json");
-        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, password);
+        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario);
 
-        // ---- 6. Marcador instalacion.json ----
+        // ---- 8. Marcador instalacion.json ----
         var info = new InstalacionInfo
         {
             Raiz = raiz,
@@ -172,6 +191,85 @@ public static class InstalacionHelper
     }
 
     // ==================================================================
+    // ESTRUCTURA MICROSIP EXTRAS (idempotente)
+    // ==================================================================
+
+    /// <summary>
+    /// Crea la estructura completa de C:\Microsip Extras\ si no existe.
+    /// Idempotente: Directory.CreateDirectory no falla si ya existe.
+    /// No modifica ni elimina archivos existentes.
+    /// </summary>
+    public static void CrearEstructuraMicrosipExtras()
+    {
+        Directory.CreateDirectory(InstalacionPaths.MicrosipExtrasRaiz);
+        Directory.CreateDirectory(InstalacionPaths.RutaFotos);
+        Directory.CreateDirectory(InstalacionPaths.RutaStaging);
+        Directory.CreateDirectory(InstalacionPaths.RutaRespaldos);
+        Directory.CreateDirectory(InstalacionPaths.RutaLogs);
+
+        EstablecerAcls(InstalacionPaths.MicrosipExtrasRaiz);
+    }
+
+    private static void EstablecerAcls(string directorio)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        
+        try
+        {
+            var dInfo = new DirectoryInfo(directorio);
+            var security = dInfo.GetAccessControl();
+            
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var service = new SecurityIdentifier(WellKnownSidType.NetworkServiceSid, null);
+
+            security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.Modify, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            
+            dInfo.SetAccessControl(security);
+            Console.WriteLine($"[INFO] ACLs aplicadas en {directorio} (Administrators, SYSTEM, NetworkService)");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[AVISO] No se pudieron aplicar las ACLs en {directorio}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Detecta archivos de BD legacy (Data/web.db, Data/cola_offline.db) junto
+    /// al exe anterior y crea un respaldo .bak en Respaldos\ antes de cualquier
+    /// accion. NO los elimina (se mantienen como respaldo hasta sprint posterior).
+    /// </summary>
+    private static void MigrarBdcLegada(string raizExe)
+    {
+        var candidatos = new[]
+        {
+            Path.Combine(raizExe, "Data", "web.db"),
+            Path.Combine(raizExe, "Data", "cola_offline.db"),
+        };
+
+        foreach (var archivo in candidatos)
+        {
+            if (!File.Exists(archivo)) continue;
+
+            var destBak = InstalacionPaths.GenerarRutaRespaldo(Path.GetFileName(archivo));
+            try
+            {
+                File.Copy(archivo, destBak, overwrite: false);
+                // Registro en consola (el wizard captura StdOut para mostrarlo)
+                Console.WriteLine($"[INFO] Respaldo creado: {destBak}");
+                Console.WriteLine($"[INFO] Archivo legacy conservado: {archivo}");
+                Console.WriteLine("[INFO] La fusion de datos se realizara en la proxima actualizacion.");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[AVISO] No se pudo respaldar {archivo}: {ex.Message}");
+            }
+        }
+    }
+
+    // ==================================================================
     // HELPERS PRIVADOS
     // ==================================================================
 
@@ -199,8 +297,14 @@ public static class InstalacionHelper
         }
     }
 
+    /// <summary>
+    /// Genera appsettings.json en la raiz de instalacion.
+    /// SEGURIDAD: la contraseña NUNCA se escribe en el archivo generado.
+    /// El placeholder CHANGE_ME_FIREBIRD_PASSWORD debe sustituirse en produccion
+    /// con la variable de entorno ConnectionStrings__FirebirdConnection.
+    /// </summary>
     private static void EscribirAppSettings(string plantilla, string destino,
-        string rutaFdb, string usuario, string password)
+        string rutaFdb, string usuario)
     {
         var nodo = JsonNode.Parse(File.ReadAllText(plantilla))
                    ?? throw new InvalidOperationException("La plantilla appsettings.json no es JSON valido.");
@@ -209,13 +313,29 @@ public static class InstalacionHelper
         if (conexiones == null)
             throw new InvalidOperationException("La plantilla no tiene la seccion ConnectionStrings.");
 
-        // Cadena Firebird con los datos elegidos (DataSource localhost/3050)
-        var cadena = FbConexionHelper.ConstruirCadena(rutaFdb, usuario, password);
-
-        // Pooling=true en produccion (la prueba de instalacion uso Pooling=false)
+        // Construir la cadena con placeholder de contraseña (nunca la contraseña real).
+        // Produccion debe sobreescribir via variable de entorno.
+        var cadena = FbConexionHelper.ConstruirCadena(rutaFdb, usuario, "CHANGE_ME_FIREBIRD_PASSWORD");
         cadena = cadena.Replace("Pooling=False", "Pooling=True");
 
         conexiones["FirebirdConnection"] = cadena;
+
+        // Actualizar ruta SQLite al path canonico de Microsip Extras (Consolidacion Fase B)
+        var comple = nodo["ComplementariaDb"] as JsonObject;
+        if (comple == null)
+        {
+            comple = new JsonObject();
+            nodo["ComplementariaDb"] = comple;
+        }
+        comple["Ruta"] = InstalacionPaths.RutaDb;
+
+        // Limpiar configuraciones legadas
+        nodo.AsObject().Remove("WebSqlite");
+        nodo.AsObject().Remove("ColaOffline");
+
+        var storage = nodo["Storage"] as JsonObject;
+        if (storage != null)
+            storage["FotosPath"] = InstalacionPaths.RutaFotos;
 
         File.WriteAllText(destino, nodo.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }

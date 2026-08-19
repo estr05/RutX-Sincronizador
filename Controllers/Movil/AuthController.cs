@@ -144,11 +144,12 @@ public class AuthController : ControllerBase
             new Claim("sucursal_id", sesion.SucursalId.ToString())
         };
 
+        var expirationMinutes = _configuration.GetValue<int>("Jwt:ExpirationMinutes", 480);
         var token = new JwtSecurityToken(
             issuer: _configuration["Jwt:Issuer"],
             audience: _configuration["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(12),
+            expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
             signingCredentials: creds
         );
 

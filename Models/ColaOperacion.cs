@@ -13,4 +13,8 @@ public class ColaOperacion
     public string? ErrorUltimoIntento { get; set; }
     public DateTime FechaCreacion { get; set; } = DateTime.UtcNow;
     public DateTime FechaModificacion { get; set; } = DateTime.UtcNow;
+    
+    // Sprint 4: Atributos de resiliencia concurrente
+    public DateTime? LeaseUntil { get; set; }
+    public bool DeadLetter { get; set; } = false;
 }

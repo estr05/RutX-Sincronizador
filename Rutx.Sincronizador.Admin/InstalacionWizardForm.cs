@@ -9,7 +9,7 @@ namespace Rutx.Sincronizador.Admin;
 /// Asistente de instalacion estandarizada del sincronizador (4 pasos):
 ///   1. Ubicacion   -> carpeta destino (default C:\ProgramData\RUTX\Sincronizador)
 ///   2. BD + creds  -> elegir el .fdb, verificar firma y probar conexion
-///                     (intenta SYSDBA/masterkey; si falla, pide credenciales)
+///                     (si la conexión inicial falla, pide credenciales válidas)
 ///   3. Instalar    -> copia ejecutables, genera appsettings.json y marcador,
 ///                     arranca el sync con la raiz como WorkingDirectory y
 ///                     ejecuta la auditoria EN VIVO (contadores 🔴🟡🟢)
@@ -38,7 +38,7 @@ public class InstalacionWizardForm : Form
     private string _raiz = InstalacionHelper.RutaDefault;
     private string _rutaFdb = "";
     private string _usuario = "SYSDBA";
-    private string _password = "masterkey";
+    private string _password = "";
     private bool _conexionOk;
     private FirebirdVersionInfo? _versionInfo;
     private bool _instalado;
@@ -334,7 +334,7 @@ public class InstalacionWizardForm : Form
 
             try
             {
-                // Verificar firma y probar credenciales por defecto (SYSDBA/masterkey)
+                // Verificar firma y probar credenciales configuradas o pedir nuevas
                 await ProbarConexionAsync(_txtUsuario.Text.Trim(), _txtPassword.Text);
             }
             catch (Exception ex)
@@ -360,7 +360,7 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(Lbl("Contraseña", 222));
         _txtPassword = new TextBox
         {
-            Text = "masterkey",
+            Text = "",
             Location = new Point(0, 245),
             Width = 300,
             Font = new Font("Cascadia Code", 10F),
@@ -413,8 +413,7 @@ public class InstalacionWizardForm : Form
             MaximumSize = new Size(520, 0),
             Font = new Font("Figtree", 9F, FontStyle.Regular),
             ForeColor = TextoMuted,
-            Text = "Por defecto se intenta con SYSDBA / masterkey. Si tu Firebird usa otra "
-                 + "contraseña, escríbela aquí y presiona \"Probar conexión\"."
+            Text = "Escribe la contraseña de tu base de datos Firebird (el instalador NO usa contraseñas por defecto) y presiona \"Probar conexión\"."
         });
         return p;
     }

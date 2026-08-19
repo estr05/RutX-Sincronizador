@@ -9,14 +9,14 @@ una instalacion necesita saber:
 
   - Contadores: cuantos faltan por configurar (FALLO), avisos y OK.
   - Lista breve de lo que HAY QUE CONFIGURAR (solo los FALLO).
-  - Verificacion de credenciales: intenta SYSDBA/masterkey; si falla, pide
-    usuario y contrasena al usuario (y valida de nuevo).
+  - Verificacion de credenciales: intenta la contrasena dada o pide
+    usuario y contrasena al usuario.
 
 100% SOLO LECTURA: solo ejecuta SELECTs y metadatos. Nada se modifica.
 
 USO:
   python auditory_install.py "C:\\ruta\\CHOCOLATES.fdb"
-  python auditory_install.py "C:\\ruta\\CHOCOLATES.fdb" --user SYSDBA --password masterkey
+  python auditory_install.py "C:\\ruta\\CHOCOLATES.fdb" --user SYSDBA --password mipassword
   python auditory_install.py "C:\\ruta\\CHOCOLATES.fdb" --auto   (no pregunta, usa defaults)
 
 SALIDA (codigo de salida):
@@ -166,10 +166,10 @@ def get_fk_constraints(cur):
 
 
 def resolver_credenciales(args):
-    """Intenta SYSDBA/masterkey; si falla y no viene --auto, pide usuario/clave."""
-    intentos = [("SYSDBA", "masterkey")]
-    if args.user != "SYSDBA" or args.password != "masterkey":
-        intentos.insert(0, (args.user, args.password))
+    """Intenta la contrasena dada; si falla y no viene --auto, pide usuario/clave."""
+    intentos = []
+    if args.user and args.password:
+        intentos.append((args.user, args.password))
 
     for usuario, clave in intentos:
         try:
@@ -203,7 +203,7 @@ def main():
         description="Auditoria compacta de instalacion: BD Microsip <-> sincronizador Rutx.")
     parser.add_argument("db_path", help="Ruta del archivo .fdb (ej: C:\\Microsip datos\\CHOCOLATES.fdb)")
     parser.add_argument("--user", default="SYSDBA", help="Usuario Firebird (default: SYSDBA)")
-    parser.add_argument("--password", default="masterkey", help="Password (default: masterkey)")
+    parser.add_argument("--password", default="", help="Password")
     parser.add_argument("--auto", action="store_true",
                         help="No preguntar credenciales: usa las dadas y reporta el fallo")
     args = parser.parse_args()

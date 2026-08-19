@@ -16,40 +16,8 @@ namespace Rutx.Sincronizador.Models;
 public class NoVentaPvFormDto
 {
     [Required]
-    [FromForm(Name = "venta_movil_id")]
-    public string VentaMovilId { get; set; } = string.Empty;
-
-    [Required]
-    [FromForm(Name = "vendedor_id")]
-    public int VendedorId { get; set; }
-
-    [Required]
-    [FromForm(Name = "cliente_id")]
-    public int ClienteId { get; set; }
-
-    [Required]
-    [FromForm(Name = "fecha_hora")]
-    public DateTime FechaHora { get; set; }
-
-    [FromForm(Name = "caja_id")]
-    public int? CajaId { get; set; }
-
-    [FromForm(Name = "cajero_id")]
-    public int? CajeroId { get; set; }
-
-    [FromForm(Name = "usuario_creador")]
-    public string? UsuarioCreador { get; set; }
-
-    [Required]
-    [FromForm(Name = "causa_id")]
-    public int CausaId { get; set; }
-
-    [Required]
-    [FromForm(Name = "causa_desc")]
-    public string CausaDesc { get; set; } = string.Empty;
-
-    [FromForm(Name = "comentario")]
-    public string? Comentario { get; set; }
+    [FromForm(Name = "payload")]
+    public string PayloadJson { get; set; } = string.Empty;
 
     /// <summary>Archivo de la fotografia (campo `foto` del multipart).</summary>
     public IFormFile? Foto { get; set; }

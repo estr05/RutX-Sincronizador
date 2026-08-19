@@ -697,7 +697,7 @@ public class VentaServicePv : IVentaServicePv
         return await connection.QueryAsync(sql, new { DoctoPvId = doctoPvId });
     }
 
-    public async Task<object> RegistrarNoVentaPvAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto)
+    public async Task<(int DoctoPvId, string Folio)> RegistrarNoVentaPvAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto)
     {
         // La identidad (caja, cajero, almacen) viene del login (claims JWT)
         if (sesion == null || sesion.CajaId <= 0)
@@ -708,7 +708,7 @@ public class VentaServicePv : IVentaServicePv
         return await _firebirdRetry.EjecutarAsync(() => EjecutarNoVentaCoreAsync(sesion, dto));
     }
 
-    private async Task<object> EjecutarNoVentaCoreAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto)
+    private async Task<(int DoctoPvId, string Folio)> EjecutarNoVentaCoreAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto)
     {
         using var connection = new FbConnection(_connectionString);
         await connection.OpenAsync();
@@ -757,8 +757,8 @@ public class VentaServicePv : IVentaServicePv
                 : _configuration.GetValue<int>("MicrosipSettings:DefaultSucursalId", 4274);
             int monedaId = _configuration.GetValue<int>("MicrosipSettings:DefaultMonedaId", 1);
 
-            // Formatear descripcion con prefijo NO VENTA: para identificarlo
-            string desc = $"NO VENTA: CAUSA: {dto.CausaDesc}. NOTAS: {dto.Comentario ?? "N/A"}. FOTO: {dto.FotoPath ?? "N/A"}";
+            // DOCTOS_PV.DESCRIPCION contiene causa y comentario (sin FOTO: — la foto vive en BD/C).
+            string desc = $"NO VENTA: CAUSA: {dto.CausaDesc}. NOTAS: {dto.Comentario ?? "N/A"}.";
             if (desc.Length > 200) desc = desc.Substring(0, 200);
 
             var timeOfDay = dto.FechaHora.TimeOfDay;
@@ -808,11 +808,7 @@ public class VentaServicePv : IVentaServicePv
 
             await transaction.CommitAsync();
 
-            return new { 
-                docto_pv_id = generatedDoctoPvId, 
-                folio = folio, 
-                mensaje = "No Venta registrada exitosamente" 
-            };
+            return (generatedDoctoPvId, folio);
         }
         catch (Exception ex)
         {
@@ -834,7 +830,11 @@ public interface IVentaServicePv
     /// usuario creador) se resuelve del login (claims JWT).
     /// </summary>
     Task<VentaPvResponseDto> RegistrarVentaPvAsync(UsuarioSesion sesion, VentaPvCreateDto ventaDto);
-    Task<object> RegistrarNoVentaPvAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto);
+    /// <summary>
+    /// Registra una no-venta en Firebird. Devuelve (DoctoPvId, Folio).
+    /// La foto ya no se incluye en DOCTOS_PV.DESCRIPCION; la gestiona la saga.
+    /// </summary>
+    Task<(int DoctoPvId, string Folio)> RegistrarNoVentaPvAsync(UsuarioSesion sesion, NoVentaPvCreateDto dto);
     Task<bool> AplicarVentaAsync(int doctoPvId);
     Task<bool> CancelarVentaAsync(int doctoPvId);
     Task<IEnumerable<dynamic>> ConsultarTicketAsync(int doctoPvId);

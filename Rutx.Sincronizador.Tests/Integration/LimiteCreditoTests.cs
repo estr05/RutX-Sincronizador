@@ -6,6 +6,9 @@ using Xunit;
 
 namespace Rutx.Sincronizador.Tests.Integration;
 
+// Requiere base de datos real (Firebird) para operar.
+// Solo se ejecutan con: dotnet test --filter Category=Integration
+[Trait("Category", "Integration")]
 public class LimiteCreditoTests
 {
     private static readonly IConfiguration Config = new ConfigurationBuilder()

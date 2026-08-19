@@ -14,9 +14,13 @@ ALINEADO AL ESTADO ACTUAL DEL SINCRONIZADOR (login nativo, sin AGENTES):
     (por defecto: appsettings.json junto al script; --appsettings para otro).
 
 USO:
-  python auditar_compatibilidad.py "C:\\ruta\\CHOCOLATES.fdb"
-  python auditar_compatibilidad.py "C:\\ruta\\CHOCOLATES.fdb" --user SYSDBA --password masterkey
+  python auditar_compatibilidad.py "C:\\ruta\\CHOCOLATES.fdb" --user SYSDBA --password <tu_password>
   python auditar_compatibilidad.py "C:\\ruta\\CHOCOLATES.fdb" --appsettings appsettings.json
+
+  NOTA DE SEGURIDAD: --password es obligatorio. No existe un valor por defecto para
+  evitar el uso accidental de la contrasena por defecto de Firebird ('masterkey').
+  Si tu instalacion usa la contrasena por defecto de Firebird, cambiala antes de
+  conectar esta BD a produccion (incumple SEC-01).
 
 SALIDA: [ OK ] / [AVISO] / [FALLO] por verificacion + veredicto final
   APTA            -> lista para produccion
@@ -281,7 +285,15 @@ def main():
         description="Audita una BD Firebird de Microsip para compatibilidad con el sincronizador Rutx.")
     parser.add_argument("db_path", help="Ruta del archivo .fdb (ej: C:\\Microsip datos\\CHOCOLATES.fdb)")
     parser.add_argument("--user", default="SYSDBA", help="Usuario Firebird (default: SYSDBA)")
-    parser.add_argument("--password", default="masterkey", help="Password (default: masterkey)")
+    parser.add_argument(
+        "--password",
+        required=True,
+        help=(
+            "Password de Firebird para el usuario especificado. "
+            "OBLIGATORIO: no existe valor por defecto para prevenir el uso "
+            "accidental de credenciales inseguras (SEC-01)."
+        ),
+    )
     parser.add_argument("--appsettings", default=None,
                         help="Ruta al appsettings del entorno (default: appsettings.json junto al script)")
     args = parser.parse_args()

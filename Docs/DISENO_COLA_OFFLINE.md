@@ -392,7 +392,7 @@ Rutx.Sincronizador/
     "RutaSqlite": "Data/cola_offline.db"
   },
   "ConnectionStrings": {
-    "FirebirdConnection": "User=SYSDBA;Password=masterkey;Database=CHOCOLATES.fdb;DataSource=localhost;Port=3050;"
+    "FirebirdConnection": "User=SYSDBA;Password=<tu_password>;Database=CHOCOLATES.fdb;DataSource=localhost;Port=3050;"
   },
   "MicrosipSettings": {
     "DefaultMonedaId": 1,

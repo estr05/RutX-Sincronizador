@@ -5,9 +5,9 @@ using Rutx.Sincronizador.Services;
 
 namespace Rutx.Sincronizador.Controllers.Admin;
 
-[Authorize]
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
-[Route("api/v1/queue")]
+[Route("api/v2/admin/[controller]")]
 public class ColaController : ControllerBase
 {
     private readonly IColaOfflineService _colaService;

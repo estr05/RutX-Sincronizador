@@ -5,9 +5,9 @@ using Dapper;
 
 namespace Rutx.Sincronizador.Controllers.Admin;
 
-[Authorize]
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/v2/admin/[controller]")]
 public class DiagnosticController : ControllerBase
 {
     private readonly string _connectionString;

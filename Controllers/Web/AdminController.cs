@@ -9,9 +9,13 @@ namespace Rutx.Sincronizador.Controllers.Web;
 
 /// <summary>
 /// Panel de administracion del sincronizador (web de config bajo demanda).
-/// Rutas nuevas bajo /api/v2/admin/* — NO tocan el contrato movil /api/v1/*.
-/// Sin autenticacion (solo escucha local); revisar si se expone fuera de localhost.
+/// Rutas bajo /api/v2/admin/* — NO tocan el contrato movil /api/v1/*.
+/// Protegido con autenticacion Basic (<see cref="Rutx.Sincronizador.Security.AdminAuth"/>)
+/// y accesible unicamente desde loopback (middleware de superficie en Program.cs).
+/// GET /config y GET /conexion redactan ConnectionStrings, Jwt y WebAuth antes de responder:
+/// nunca se devuelven passwords ni claves al cliente.
 /// </summary>
+[Rutx.Sincronizador.Security.AdminAuth]
 [ApiController]
 [Route("api/v2/admin")]
 public class AdminController : ControllerBase
@@ -61,7 +65,14 @@ public class AdminController : ControllerBase
                 return NotFound(new { message = "No se encontro appsettings.json en " + _appSettingsPath });
 
             using var doc = JsonDocument.Parse(System.IO.File.ReadAllText(_appSettingsPath));
-            return Ok(doc.RootElement.Clone());
+            
+            // Redactar secciones criticas
+            var dict = doc.RootElement.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
+            dict.Remove("ConnectionStrings");
+            dict.Remove("Jwt");
+            dict.Remove("WebAuth");
+
+            return Ok(JsonSerializer.SerializeToElement(dict));
         }
         catch (Exception ex)
         {
@@ -81,14 +92,9 @@ public class AdminController : ControllerBase
         if (config.ValueKind != JsonValueKind.Object)
             return BadRequest(new { message = "El cuerpo debe ser un objeto JSON." });
 
-        // Validacion minima: las secciones criticas deben venir en el body para
-        // no escribir un archivo que rompa el arranque.
-        var seccionesCriticas = new[] { "ConnectionStrings", "MicrosipSettings" };
-        foreach (var seccion in seccionesCriticas)
-        {
-            if (!config.TryGetProperty(seccion, out var v) || v.ValueKind != JsonValueKind.Object)
-                return BadRequest(new { message = $"Falta la seccion '{seccion}' en el JSON." });
-        }
+        // Validacion minima: MicrosipSettings debe venir
+        if (!config.TryGetProperty("MicrosipSettings", out var v) || v.ValueKind != JsonValueKind.Object)
+            return BadRequest(new { message = "Falta la seccion 'MicrosipSettings' en el JSON." });
 
         try
         {
@@ -102,6 +108,11 @@ public class AdminController : ControllerBase
             var raiz = doc.RootElement.Clone();
             var seccionesEntrantes = config.EnumerateObject()
                 .ToDictionary(p => p.Name, p => p.Value.Clone());
+
+            // Remover secciones protegidas para que no se puedan sobreescribir desde el panel
+            seccionesEntrantes.Remove("ConnectionStrings");
+            seccionesEntrantes.Remove("Jwt");
+            seccionesEntrantes.Remove("WebAuth");
 
             var diccionario = new Dictionary<string, object>();
             foreach (var prop in raiz.EnumerateObject())
@@ -297,12 +308,11 @@ public class AdminController : ControllerBase
             var builder = new FbConnectionStringBuilder(connectionString);
             return Ok(new
             {
-                cadena = connectionString,
                 campos = new
                 {
                     database = builder.Database,
                     user = builder.UserID,
-                    password = builder.Password,
+                    password_configured = !string.IsNullOrEmpty(builder.Password),
                     data_source = builder.DataSource,
                     port = builder.Port,
                     dialect = builder.Dialect,
@@ -317,7 +327,6 @@ public class AdminController : ControllerBase
             _logger.LogWarning(ex, "Cadena Firebird no parseable");
             return Ok(new
             {
-                cadena = connectionString,
                 campos = (object?)null,
                 error = "La cadena no se pudo desglosar: " + ex.Message
             });

@@ -421,6 +421,200 @@ public sealed class WebSqliteStore : IWebSqliteStore
         return (condiciones.Count > 0 ? string.Join(" AND ", condiciones) : "1 = 1", parametros);
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // SAGA DE NO VENTAS (v004)
+    // ────────────────────────────────────────────────────────────────────────
+
+    public async Task<NoSaleOperationRow> CreateOrGetNoSaleOperationAsync(
+        string ventaMovilId, string requestHash,
+        int vendedorId, int clienteId, int causaId, string fechaHora,
+        CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+
+        // BEGIN IMMEDIATE garantiza serialización sin deadlock en WAL
+        await using var cmd0 = conn.CreateCommand();
+        cmd0.CommandText = "PRAGMA journal_mode=WAL;";
+        await cmd0.ExecuteNonQueryAsync(ct);
+
+        await using var tx = await conn.BeginTransactionAsync(ct) as Microsoft.Data.Sqlite.SqliteTransaction
+            ?? throw new InvalidOperationException("SqliteTransaction no disponible.");
+
+        // INSERT OR IGNORE: si ya existe, no hace nada; no falla.
+        await using var ins = conn.CreateCommand();
+        ins.Transaction = tx;
+        ins.CommandText = """
+            INSERT OR IGNORE INTO rutx_no_sale_operations
+                (venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                 fecha_hora, status, attempts, created_at, updated_at)
+            VALUES
+                ($vmid, $hash, $vid, $cid, $causaId, $fh, 'received', 0, $now, $now);
+            """;
+        ins.Parameters.AddWithValue("$vmid",   ventaMovilId);
+        ins.Parameters.AddWithValue("$hash",   requestHash);
+        ins.Parameters.AddWithValue("$vid",    vendedorId);
+        ins.Parameters.AddWithValue("$cid",    clienteId);
+        ins.Parameters.AddWithValue("$causaId", causaId);
+        ins.Parameters.AddWithValue("$fh",     fechaHora);
+        ins.Parameters.AddWithValue("$now",    ahora);
+        await ins.ExecuteNonQueryAsync(ct);
+
+        // SELECT la fila existente o recién creada
+        await using var sel = conn.CreateCommand();
+        sel.Transaction = tx;
+        sel.CommandText = """
+            SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                   fecha_hora, docto_pv_id, folio, foto_file_id,
+                   status, attempts, error_code, error_message, created_at, updated_at
+            FROM rutx_no_sale_operations
+            WHERE venta_movil_id = $vmid
+            LIMIT 1;
+            """;
+        sel.Parameters.AddWithValue("$vmid", ventaMovilId);
+        await using var reader = await sel.ExecuteReaderAsync(ct);
+        await reader.ReadAsync(ct);
+        var row = LeerNoSaleOperation(reader);
+
+        await tx.CommitAsync(ct);
+        return row;
+    }
+
+    public async Task<NoSaleOperationRow?> FindNoSaleOperationAsync(
+        string ventaMovilId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                   fecha_hora, docto_pv_id, folio, foto_file_id,
+                   status, attempts, error_code, error_message, created_at, updated_at
+            FROM rutx_no_sale_operations
+            WHERE venta_movil_id = $vmid
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$vmid", ventaMovilId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? LeerNoSaleOperation(reader) : null;
+    }
+
+    public async Task<NoSaleOperationRow> UpdateNoSaleOperationAsync(
+        long id, string status,
+        int? doctoPvId = null, string? folio = null, long? fotoFileId = null,
+        string? errorCode = null, string? errorMessage = null,
+        CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE rutx_no_sale_operations
+            SET status        = $status,
+                docto_pv_id   = COALESCE($doctoPvId,  docto_pv_id),
+                folio         = COALESCE($folio,       folio),
+                foto_file_id  = COALESCE($fotoFileId, foto_file_id),
+                error_code    = $errorCode,
+                error_message = $errorMessage,
+                attempts      = attempts + 1,
+                updated_at    = $now
+            WHERE id = $id;
+
+            SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                   fecha_hora, docto_pv_id, folio, foto_file_id,
+                   status, attempts, error_code, error_message, created_at, updated_at
+            FROM rutx_no_sale_operations
+            WHERE id = $id
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$id",           id);
+        cmd.Parameters.AddWithValue("$status",       status);
+        cmd.Parameters.AddWithValue("$doctoPvId",    (object?)doctoPvId  ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$folio",        (object?)folio      ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$fotoFileId",   (object?)fotoFileId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$errorCode",    (object?)errorCode  ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$errorMessage", (object?)errorMessage ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now",          ahora);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        // Saltar el result set del UPDATE, leer el SELECT
+        if (!await reader.NextResultAsync(ct) || !await reader.ReadAsync(ct))
+            throw new InvalidOperationException($"No se encontró la operación con id={id} tras actualizar.");
+        return LeerNoSaleOperation(reader);
+    }
+
+    public async Task<MediaFileRow> CreateMediaFileAsync(
+        long operationId, string category,
+        string? originalName, string storedName, string relativePath,
+        string mimeType, long sizeBytes, string sha256,
+        CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO rutx_media_files
+                (category, operation_id, original_name, stored_name, relative_path,
+                 mime_type, size_bytes, sha256, status, created_at)
+            VALUES
+                ($cat, $opId, $origName, $stored, $relPath, $mime, $size, $sha, 'staging', $now)
+            RETURNING id, category, operation_id, original_name, stored_name, relative_path,
+                      mime_type, size_bytes, sha256, status, created_at, promoted_at;
+            """;
+        cmd.Parameters.AddWithValue("$cat",      category);
+        cmd.Parameters.AddWithValue("$opId",     operationId);
+        cmd.Parameters.AddWithValue("$origName", (object?)originalName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$stored",   storedName);
+        cmd.Parameters.AddWithValue("$relPath",  relativePath);
+        cmd.Parameters.AddWithValue("$mime",     mimeType);
+        cmd.Parameters.AddWithValue("$size",     sizeBytes);
+        cmd.Parameters.AddWithValue("$sha",      sha256);
+        cmd.Parameters.AddWithValue("$now",      ahora);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+            throw new InvalidOperationException("INSERT de media_file no retornó fila.");
+        return LeerMediaFile(reader);
+    }
+
+    public async Task<MediaFileRow?> FindMediaFileByStoredNameAsync(
+        string storedName, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, category, operation_id, original_name, stored_name, relative_path,
+                   mime_type, size_bytes, sha256, status, created_at, promoted_at
+            FROM rutx_media_files
+            WHERE stored_name = $stored
+            LIMIT 1;
+            """;
+        cmd.Parameters.AddWithValue("$stored", storedName);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct) ? LeerMediaFile(reader) : null;
+    }
+
+    public async Task UpdateMediaFileStatusAsync(
+        long id, string status, string? relativePath = null, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE rutx_media_files
+            SET status       = $status,
+                relative_path = COALESCE($relPath, relative_path),
+                promoted_at  = CASE WHEN $status = 'completed' THEN $now ELSE promoted_at END
+            WHERE id = $id;
+            """;
+        cmd.Parameters.AddWithValue("$id",      id);
+        cmd.Parameters.AddWithValue("$status",  status);
+        cmd.Parameters.AddWithValue("$relPath", (object?)relativePath ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now",     ahora);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // HELPERS DE LECTURA PRIVADOS
+    // ────────────────────────────────────────────────────────────────────────
+
     private async Task<SqliteConnection> AbrirAsync(CancellationToken cancellationToken)
     {
         var conn = new SqliteConnection(_connectionString);
@@ -454,4 +648,36 @@ public sealed class WebSqliteStore : IWebSqliteStore
         reader.IsDBNull(9) ? null : reader.GetString(9),
         reader.IsDBNull(10) ? null : reader.GetString(10),
         reader.GetString(11));
+
+    private static NoSaleOperationRow LeerNoSaleOperation(SqliteDataReader r) => new(
+        r.GetInt64(0),
+        r.GetString(1),
+        r.GetString(2),
+        r.GetInt32(3),
+        r.GetInt32(4),
+        r.GetInt32(5),
+        r.GetString(6),
+        r.IsDBNull(7)  ? null : r.GetInt32(7),
+        r.IsDBNull(8)  ? null : r.GetString(8),
+        r.IsDBNull(9)  ? null : r.GetInt64(9),
+        r.GetString(10),
+        r.GetInt32(11),
+        r.IsDBNull(12) ? null : r.GetString(12),
+        r.IsDBNull(13) ? null : r.GetString(13),
+        r.GetString(14),
+        r.GetString(15));
+
+    private static MediaFileRow LeerMediaFile(SqliteDataReader r) => new(
+        r.GetInt64(0),
+        r.GetString(1),
+        r.IsDBNull(2) ? null : r.GetInt64(2),
+        r.IsDBNull(3) ? null : r.GetString(3),
+        r.GetString(4),
+        r.GetString(5),
+        r.GetString(6),
+        r.GetInt64(7),
+        r.GetString(8),
+        r.GetString(9),
+        r.GetString(10),
+        r.IsDBNull(11) ? null : r.GetString(11));
 }

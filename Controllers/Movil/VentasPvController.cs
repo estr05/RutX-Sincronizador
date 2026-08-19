@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Rutx.Sincronizador.Data;
+using Rutx.Sincronizador.Data.Web;
 using Rutx.Sincronizador.Models;
 using Rutx.Sincronizador.Services;
 
@@ -23,17 +24,23 @@ public class VentasPvController : ControllerBase
     private readonly IVentaServicePv _ventaServicePv;
     private readonly IColaOfflineRepository _colaRepository;
     private readonly IFotoStorageService _fotoStorage;
+    private readonly INoVentaSagaService _saga;
+    private readonly IWebSqliteStore _store;
     private readonly ILogger<VentasPvController> _logger;
 
     public VentasPvController(
         IVentaServicePv ventaServicePv,
         IColaOfflineRepository colaRepository,
         IFotoStorageService fotoStorage,
+        INoVentaSagaService saga,
+        IWebSqliteStore store,
         ILogger<VentasPvController> logger)
     {
         _ventaServicePv = ventaServicePv ?? throw new ArgumentNullException(nameof(ventaServicePv));
         _colaRepository = colaRepository ?? throw new ArgumentNullException(nameof(colaRepository));
         _fotoStorage = fotoStorage ?? throw new ArgumentNullException(nameof(fotoStorage));
+        _saga = saga ?? throw new ArgumentNullException(nameof(saga));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -148,29 +155,8 @@ public class VentasPvController : ControllerBase
             if (sesion == null)
                 return Unauthorized(new { message = "Token inválido: faltan datos de sesión." });
 
-            // Guardar la foto en disco (si viene adjunta) y usar su nombre
-            // como referencia en DOCTOS_PV.
-            var referenciaFoto = await _fotoStorage.GuardarAsync(form.Foto, form.VentaMovilId);
-
-            var dto = new NoVentaPvCreateDto
-            {
-                VentaMovilId = form.VentaMovilId,
-                VendedorId = form.VendedorId,
-                ClienteId = form.ClienteId,
-                FechaHora = form.FechaHora,
-                CajaId = form.CajaId,
-                CajeroId = form.CajeroId,
-                UsuarioCreador = form.UsuarioCreador,
-                CausaId = form.CausaId,
-                CausaDesc = form.CausaDesc,
-                Comentario = form.Comentario,
-                FotoPath = referenciaFoto
-            };
-
-            // El servicio devuelve un objeto con docto_pv_id / folio (snake_case
-            // por el JsonNamingPolicy configurado); se responde tal cual para
-            // conservar el contrato que consume la app.
-            var response = await _ventaServicePv.RegistrarNoVentaPvAsync(sesion, dto);
+            // Delegar toda la orquestación a la saga (idempotencia, staging, db/c, firebird)
+            var response = await _saga.RegistrarAsync(sesion, form);
 
             return StatusCode(201, response);
         }
@@ -192,15 +178,16 @@ public class VentasPvController : ControllerBase
     /// <summary>
     /// GET /api/v1/pv/fotos/{nombre}
     /// Sirve una fotografia de no-venta guardada en la carpeta de fotos.
+    /// Valida que la foto este en estado completado en la BD/C.
     /// </summary>
     [HttpGet("fotos/{nombre}")]
-    public IActionResult ObtenerFoto(string nombre)
+    public async Task<IActionResult> ObtenerFoto(string nombre)
     {
-        var archivo = _fotoStorage.Obtener(nombre);
-        if (archivo == null)
-            return NotFound(new { message = "Foto no encontrada." });
+        var completada = await _fotoStorage.ObtenerFotoCompletadaAsync(nombre, _store);
+        if (completada == null)
+            return NotFound(new { message = "Foto no encontrada o no está lista." });
 
-        return PhysicalFile(archivo.FullName, "image/jpeg");
+        return PhysicalFile(completada.Value.File.FullName, completada.Value.MimeType);
     }
 
     /// <summary>

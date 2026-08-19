@@ -155,7 +155,41 @@ if (connectionString != null && connectionString.Contains(downloadsDbPath) && !S
 }
 // -------------------------------------------------------------------
 
-// Add services to the container.
+// ────────────────────────────────────────────────────────────────────
+// Validacion de secretos al arranque
+// ────────────────────────────────────────────────────────────────────
+// La clave JWT nunca puede ser el placeholder literal (en ningún entorno),
+// porque los tests unitarios no necesitan un JWT real para ejecutarse.
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "";
+const string JwtPlaceholder = "CHANGE_ME_JWT_SECRET_AT_LEAST_32_CHARS";
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey == JwtPlaceholder)
+    throw new InvalidOperationException(
+        "[CONFIGURACION] Jwt:Key contiene el valor de demostración. " +
+        "Define la variable de entorno Jwt__Key con una clave aleatoria " +
+        "de al menos 32 caracteres (ver Docs/CONFIGURACION_PRODUCCION.md).");
+
+// La conexión Firebird: en Production, rechazar el placeholder.
+// En Development/Test, solo advertir (permite tests unitarios sin Firebird real).
+var fbConnectionString = builder.Configuration.GetConnectionString("FirebirdConnection") ?? "";
+const string FbPlaceholder = "CHANGE_ME";
+var isProduction = string.Equals(
+    builder.Configuration["ASPNETCORE_ENVIRONMENT"] ?? builder.Environment.EnvironmentName,
+    "Production", StringComparison.OrdinalIgnoreCase);
+
+if (fbConnectionString.Contains(FbPlaceholder, StringComparison.OrdinalIgnoreCase))
+{
+    if (isProduction)
+        throw new InvalidOperationException(
+            "[CONFIGURACION] ConnectionStrings:FirebirdConnection contiene un placeholder. " +
+            "En produccion define la variable de entorno " +
+            "ConnectionStrings__FirebirdConnection con la cadena real " +
+            "(ver Docs/CONFIGURACION_PRODUCCION.md).");
+    else
+        Console.Error.WriteLine(
+            "[AVISO] FirebirdConnection contiene un placeholder. " +
+            "Los endpoints que consulten Firebird fallarán hasta configurar la conexion real.");
+}
+// -------------------------------------------------------------------
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>
     {
@@ -220,6 +254,9 @@ builder.Services.AddSingleton<IColaOfflineRepository>(new ColaOfflineRepository(
 builder.Services.AddScoped<IColaOfflineService, ColaOfflineService>();
 builder.Services.AddHostedService<BackgroundSyncService>();
 
+// Saga idempotente de no ventas y fotos (Pendiente 3 Sprint 4)
+builder.Services.AddScoped<INoVentaSagaService, NoVentaSagaService>();
+
 // Servicios v2 web (contrato v2 §8): flujo Controller Web → Interface Web → Service Web.
 builder.Services.AddScoped<IDashboardWebService, DashboardWebService>();
 builder.Services.AddScoped<IReportsWebService, ReportsWebService>();
@@ -244,16 +281,12 @@ string webSqliteConnectionString = $"Data Source={webSqlitePath}";
 builder.Services.AddSingleton<IWebSqliteStore>(sp =>
     new WebSqliteStore(webSqliteConnectionString, sp.GetRequiredService<ILogger<WebSqliteStore>>()));
 
-// Configuración JWT (Mauricio)
-var key = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException("Jwt:Key no está configurada en appsettings.json. Define una clave JWT de al menos 32 caracteres.");
+// Configuración JWT — la clave ya fue validada en el bloque de secretos al arranque.
+var key = jwtKey; // reutilizar la variable ya leida y validada
 var issuer = builder.Configuration["Jwt:Issuer"]
     ?? throw new InvalidOperationException("Jwt:Issuer no está configurada en appsettings.json.");
 var audience = builder.Configuration["Jwt:Audience"]
     ?? throw new InvalidOperationException("Jwt:Audience no está configurada en appsettings.json.");
-
-if (key.Length < 32)
-    throw new InvalidOperationException($"Jwt:Key debe tener al menos 32 caracteres (actual: {key.Length}).");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

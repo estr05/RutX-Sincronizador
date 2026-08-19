@@ -72,7 +72,9 @@ public interface IWebSqliteStore
     /// <summary>Un aviso por Idempotency-Key (detección de reintentos del comando).</summary>
     Task<WebNotificationRow?> FindNotificationByIdempotencyAsync(string idempotencyKey, CancellationToken cancellationToken = default);
 
-    /// <summary>Crea un aviso (una fila por destinatario) con su clave de idempotencia y traza.</summary>
+    /// <summary>
+    /// Crea un aviso (una fila por destinatario) con su clave de idempotencia y traza.
+    /// </summary>
     Task<WebNotificationRow> CreateNotificationAsync(
         string targetType,
         int targetId,
@@ -93,6 +95,79 @@ public interface IWebSqliteStore
     Task<IReadOnlyList<WebNotificationRow>> CreateNotificationsBatchAsync(
         IReadOnlyList<NotificationBatchItem> items,
         CancellationToken cancellationToken = default);
+
+    // ────────────────────────────────────────────────────────────────────────
+    // SAGA DE NO VENTAS — rutx_no_sale_operations + rutx_media_files (v004)
+    // ────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Crea la operación de no-venta con estado 'received', o devuelve la existente
+    /// si venta_movil_id ya existe (UNIQUE). La operación es atómica:
+    /// INSERT OR IGNORE + SELECT en una transacción con BEGIN IMMEDIATE.
+    /// </summary>
+    Task<NoSaleOperationRow> CreateOrGetNoSaleOperationAsync(
+        string ventaMovilId,
+        string requestHash,
+        int vendedorId,
+        int clienteId,
+        int causaId,
+        string fechaHora,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Busca una operación de no-venta por su venta_movil_id.
+    /// Devuelve null si no existe.
+    /// </summary>
+    Task<NoSaleOperationRow?> FindNoSaleOperationAsync(
+        string ventaMovilId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Actualiza el estado y campos opcionales de una operación de no-venta.
+    /// Incrementa attempts automáticamente.
+    /// </summary>
+    Task<NoSaleOperationRow> UpdateNoSaleOperationAsync(
+        long id,
+        string status,
+        int? doctoPvId = null,
+        string? folio = null,
+        long? fotoFileId = null,
+        string? errorCode = null,
+        string? errorMessage = null,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Registra metadata de un archivo multimedia en estado 'staging'.
+    /// stored_name es UNIQUE; si ya existe, lanza excepción (no-op no deseado).
+    /// </summary>
+    Task<MediaFileRow> CreateMediaFileAsync(
+        long operationId,
+        string category,
+        string? originalName,
+        string storedName,
+        string relativePath,
+        string mimeType,
+        long sizeBytes,
+        string sha256,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Busca un archivo multimedia por su stored_name.
+    /// Devuelve null si no existe.
+    /// </summary>
+    Task<MediaFileRow?> FindMediaFileByStoredNameAsync(
+        string storedName,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Actualiza el estado de un archivo multimedia (ej: staging → completed).
+    /// Opcionalmente actualiza la ruta relativa (para el paso de promoción).
+    /// </summary>
+    Task UpdateMediaFileStatusAsync(
+        long id,
+        string status,
+        string? relativePath = null,
+        CancellationToken ct = default);
 }
 
 /// <summary>Datos para una fila del lote de notificaciones.</summary>

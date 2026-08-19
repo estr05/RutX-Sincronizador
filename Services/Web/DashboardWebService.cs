@@ -25,6 +25,9 @@ public class DashboardWebService : IDashboardWebService
 
     public Task<DashboardSummaryResponse> ObtenerResumenAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Dashboard"))
+            throw new FeatureNotReadyException("Dashboard");
+
         // TODO(web): implementar agregados de ventas, contado, crédito, cobranza,
         // no ventas, entregas y gastos por rango/filtros con Dapper parametrizado.
         _logger.LogInformation("Dashboard resumen solicitado (range={Range}, zone={Zone})", filtros.Range, filtros.ZoneId);
@@ -47,6 +50,9 @@ public class DashboardWebService : IDashboardWebService
 
     public Task<SalesSeriesResponse> ObtenerSerieVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Dashboard"))
+            throw new FeatureNotReadyException("Dashboard");
+
         // TODO(web): implementar serie por periodo (diario/semanal/mensual) con Dapper parametrizado.
         _logger.LogInformation("Serie de ventas solicitada (range={Range})", filtros.Range);
 

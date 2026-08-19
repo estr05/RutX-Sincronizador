@@ -25,6 +25,9 @@ public class ReportsWebService : IReportsWebService
 
     public Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
+            throw new FeatureNotReadyException("Reports");
+
         // TODO(web): agregados de ventas, piezas y montos por ruta con Dapper parametrizado.
         _logger.LogInformation("Reporte de ventas solicitado (range={Range})", filtros.Range);
 
@@ -37,6 +40,9 @@ public class ReportsWebService : IReportsWebService
 
     public Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
+            throw new FeatureNotReadyException("Reports");
+
         // TODO(web): resolver ventanas de fechas y devolver las dos series
         // comparables (periodo actual vs. mismo periodo del año anterior).
         _logger.LogInformation("Comparativa solicitada (range={Range})", filtros.Range);
@@ -46,6 +52,9 @@ public class ReportsWebService : IReportsWebService
 
     public Task<SalesReportResponse> ObtenerRentabilidadPorRutaAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
+            throw new FeatureNotReadyException("Reports");
+
         // TODO(web): agregados de venta, gasto, entrega y costo disponible por ruta.
         // Endpoint Prioridad Posterior (§6.3): no publicar hasta activación comercial.
         _logger.LogInformation("Rentabilidad por ruta solicitada (range={Range})", filtros.Range);

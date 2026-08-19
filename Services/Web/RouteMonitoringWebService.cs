@@ -25,6 +25,9 @@ public class RouteMonitoringWebService : IRouteMonitoringWebService
 
     public Task<RouteMonitorListResponse> ObtenerMonitoreoAsync(RouteMonitorQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Monitoring"))
+            throw new FeatureNotReadyException("Monitoring");
+
         // TODO(web): proyección de jornada, visita y ubicación más reciente por ruta
         // con Dapper parametrizado (filtros por zona/ruta).
         _logger.LogInformation("Monitoreo solicitado (zone={Zone}, route={Route})", filtros.ZoneId, filtros.RouteId);
@@ -34,6 +37,9 @@ public class RouteMonitoringWebService : IRouteMonitoringWebService
 
     public Task<RouteTimelineResponse> ObtenerDetalleRutaAsync(int routeId, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Monitoring"))
+            throw new FeatureNotReadyException("Monitoring");
+
         // TODO(web): línea temporal del día, vendedor, duración de visitas y última venta.
         _logger.LogInformation("Detalle de ruta solicitado (routeId={RouteId})", routeId);
 
@@ -46,6 +52,9 @@ public class RouteMonitoringWebService : IRouteMonitoringWebService
 
     public Task<List<RouteMonitorItemDto>> ObtenerCatalogoRutasAsync(RouteMonitorQuery filtros, CancellationToken ct = default)
     {
+        if (!_configuration.GetValue<bool>("WebFeatures:Monitoring"))
+            throw new FeatureNotReadyException("Monitoring");
+
         // TODO(web): catálogo paginado de rutas acotado por permisos de zona.
         _logger.LogInformation("Catálogo de rutas solicitado (zone={Zone})", filtros.ZoneId);
 

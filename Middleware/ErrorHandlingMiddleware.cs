@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Rutx.Sincronizador.Models;
+using Rutx.Sincronizador.Models.Web;
 using Rutx.Sincronizador.Services;
 
 namespace Rutx.Sincronizador.Middleware;
@@ -97,6 +98,7 @@ public class ErrorHandlingMiddleware
             KeyNotFoundException => (int)HttpStatusCode.NotFound,
             UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized,
             TimeoutException => (int)HttpStatusCode.GatewayTimeout,
+            FeatureNotReadyException => (int)HttpStatusCode.NotImplemented,
             _ => (int)HttpStatusCode.InternalServerError
         };
 
@@ -107,6 +109,7 @@ public class ErrorHandlingMiddleware
                 404 => "Recurso no encontrado.",
                 401 => "No autorizado.",
                 409 => "Conflicto: la operación ya está en proceso.",
+                501 => exception.Message, // Mostrar el mensaje exacto de FeatureNotReadyException
                 503 => "El servidor está momentáneamente ocupado. Intenta de nuevo.",
                 504 => "El servidor no respondió a tiempo.",
                 _ => "Error interno del servidor."
@@ -124,6 +127,7 @@ public class ErrorHandlingMiddleware
         404 => "NOT_FOUND",
         409 => "CONFLICT",
         422 => "VALIDATION_ERROR",
+        501 => "FEATURE_NOT_READY",
         503 => "SERVICE_UNAVAILABLE",
         504 => "GATEWAY_TIMEOUT",
         _ => "INTERNAL_ERROR",

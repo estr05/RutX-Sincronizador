@@ -1,20 +1,18 @@
 // ============================================================================
 // ARCHIVO: FotoStorageService.cs
 // PROPOSITO: Guarda en disco las fotografias de las no-ventas.
-// La carpeta se configura en `Storage:FotosPath` (appsettings.json); si no
-// esta configurada, usa `Fotos` bajo el ContentRoot (directorio del exe).
-// La referencia guardada en DOCTOS_PV.DESCRIPCION es el NOMBRE del archivo
-// (ej. `VTA-AB12CD34.jpg`), no la ruta completa.
+// La carpeta raíz se configura en `Storage:FotosPath` (appsettings.json).
+// La subcarpeta .staging\ almacena temporalmente durante la saga; la carpeta
+// raíz contiene las fotos completadas (promovidas).
 // ============================================================================
 
-using System;
-using System.IO;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Rutx.Sincronizador.Data.Web;
 
 namespace Rutx.Sincronizador.Services;
 
@@ -22,6 +20,20 @@ public partial class FotoStorageService : IFotoStorageService
 {
     private readonly ILogger<FotoStorageService> _logger;
     private readonly string _carpeta;
+    private readonly string _carpetaStaging;
+
+    // Extensiones permitidas para archivos de foto (lowercase sin punto).
+    private static readonly HashSet<string> ExtensionesPermitidas =
+        new(StringComparer.OrdinalIgnoreCase) { "jpg", "jpeg", "png", "webp" };
+
+    // Mapa MIME para las extensiones permitidas.
+    private static readonly Dictionary<string, string> MimePorExtension = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "jpg",  "image/jpeg" },
+        { "jpeg", "image/jpeg" },
+        { "png",  "image/png"  },
+        { "webp", "image/webp" },
+    };
 
     public FotoStorageService(
         IConfiguration configuration,
@@ -35,10 +47,17 @@ public partial class FotoStorageService : IFotoStorageService
             ? Path.Combine(environment.ContentRootPath, "Fotos")
             : configurada;
 
+        _carpetaStaging = Path.Combine(_carpeta, ".staging");
+
         Directory.CreateDirectory(_carpeta);
+        Directory.CreateDirectory(_carpetaStaging);
     }
 
     public string Carpeta => _carpeta;
+
+    // ────────────────────────────────────────────────────────────────────────
+    // API LEGACY
+    // ────────────────────────────────────────────────────────────────────────
 
     public async Task<string?> GuardarAsync(IFormFile? foto, string ventaMovilId)
     {
@@ -76,6 +95,109 @@ public partial class FotoStorageService : IFotoStorageService
             return null;
         return new FileInfo(ruta);
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // API DE LA SAGA
+    // ────────────────────────────────────────────────────────────────────────
+
+    public async Task<StagingResult> GuardarStagingAsync(
+        IFormFile foto, long operationId, string extension, CancellationToken ct = default)
+    {
+        // Validar extensión
+        var ext = extension.TrimStart('.').ToLowerInvariant();
+        if (!ExtensionesPermitidas.Contains(ext))
+            throw new ArgumentException(
+                $"Extensión '{ext}' no permitida. Use: {string.Join(", ", ExtensionesPermitidas)}.",
+                nameof(extension));
+
+        // Nombre generado por el servidor (nunca del cliente)
+        var storedName = $"nvop-{operationId}-{DateTime.UtcNow.Ticks}.{ext}";
+        var rutaStaging = Path.Combine(_carpetaStaging, storedName);
+        var relPath = Path.Combine(".staging", storedName);
+
+        string sha256;
+        long sizeBytes;
+
+        // Guardar y calcular SHA-256 en un solo stream
+        await using (var fs = new FileStream(rutaStaging, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        await using (var sha = new CryptoStream(fs, SHA256.Create(), CryptoStreamMode.Write))
+        {
+            await foto.OpenReadStream().CopyToAsync(sha, ct);
+            await sha.FlushFinalBlockAsync(ct);
+            sizeBytes = fs.Length;
+        }
+
+        // Leer el hash resultante
+        using var fsr = File.OpenRead(rutaStaging);
+        sha256 = Convert.ToHexString(await SHA256.HashDataAsync(fsr, ct)).ToLowerInvariant();
+
+        _logger.LogInformation(
+            "[Saga] Foto guardada en staging: {StoredName} ({Bytes} bytes, sha256={Sha256})",
+            storedName, sizeBytes, sha256);
+
+        return new StagingResult(storedName, relPath, sizeBytes, sha256);
+    }
+
+    public Task<string> PromoverAsync(string storedName, CancellationToken ct = default)
+    {
+        var origen = Path.Combine(_carpetaStaging, storedName);
+        var destino = Path.Combine(_carpeta, storedName);
+
+        if (!File.Exists(origen))
+            throw new FileNotFoundException($"Archivo en staging no encontrado: {storedName}", origen);
+
+        File.Move(origen, destino, overwrite: false);
+
+        // relativePath final: solo el nombre del archivo (relativo a _carpeta)
+        _logger.LogInformation("[Saga] Foto promovida: {StoredName}", storedName);
+        return Task.FromResult(storedName);
+    }
+
+    public Task EliminarStagingAsync(string storedName, CancellationToken ct = default)
+    {
+        var ruta = Path.Combine(_carpetaStaging, storedName);
+        try
+        {
+            if (File.Exists(ruta))
+            {
+                File.Delete(ruta);
+                _logger.LogInformation("[Saga] Archivo staging eliminado: {StoredName}", storedName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[Saga] No se pudo eliminar archivo staging: {StoredName}", storedName);
+        }
+        return Task.CompletedTask;
+    }
+
+    public async Task<(FileInfo File, string MimeType)?> ObtenerFotoCompletadaAsync(
+        string storedName, IWebSqliteStore store, CancellationToken ct = default)
+    {
+        // 1. Buscar en BD/C por stored_name (anti-traversal: no usar ruta del cliente)
+        var nombreLimpio = Path.GetFileName(storedName);
+        if (string.IsNullOrWhiteSpace(nombreLimpio) || nombreLimpio != storedName)
+            return null; // contiene separadores de directorio → rechazar
+
+        var mediaFile = await store.FindMediaFileByStoredNameAsync(nombreLimpio, ct);
+        if (mediaFile == null || mediaFile.Status != "completed")
+            return null;
+
+        // 2. Validar que la ruta física esté dentro de _carpeta
+        var rutaAbsoluta = Path.GetFullPath(Path.Combine(_carpeta, nombreLimpio));
+        if (!rutaAbsoluta.StartsWith(Path.GetFullPath(_carpeta) + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+            return null; // path traversal detectado
+
+        if (!File.Exists(rutaAbsoluta))
+            return null;
+
+        return (new FileInfo(rutaAbsoluta), mediaFile.MimeType);
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // HELPERS
+    // ────────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Normaliza el id de la venta movil para usarlo como nombre de archivo:

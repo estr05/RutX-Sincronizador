@@ -412,10 +412,17 @@ public static class InstalacionHelper
             var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var service = new SecurityIdentifier(WellKnownSidType.NetworkServiceSid, null);
+            var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+            var currentUser = WindowsIdentity.GetCurrent().User;
 
             security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
             security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(users, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            if (currentUser != null)
+            {
+                security.AddAccessRule(new FileSystemAccessRule(currentUser, FileSystemRights.FullControl, AccessControlType.Allow));
+            }
 
             fi.SetAccessControl(security);
         }

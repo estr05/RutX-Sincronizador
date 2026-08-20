@@ -743,7 +743,7 @@ public class InstalacionWizardForm : Form
             infoGenerada = await Task.Run(() =>
                 InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc));
 
-            Log("Ejecutables copiados en: " + Path.Combine(_raiz, "Ejecutables"), "inf");
+            Log("Ejecutables copiados en: " + _raiz, "inf");
             Log("appsettings.json generado con tu BD (" + _rutaFdb + ")", "inf");
             if (mobileAcc) Log("Configurado para permitir conexiones desde la red local (Kestrel externa).", "inf");
 

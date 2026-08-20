@@ -366,14 +366,33 @@ public static class InstalacionHelper
         storage["FotosPath"] = InstalacionPaths.RutaFotos;
 
         // Generar Jwt:Key segura aleatoria (64 bytes en Base64) para produccion
-        if (!obj.ContainsKey("Jwt") || obj["Jwt"] is not JsonObject jwt)
+        JsonObject jwtObj;
+        if (!obj.ContainsKey("Jwt") || obj["Jwt"] is not JsonObject)
         {
-            jwt = new JsonObject();
-            obj["Jwt"] = jwt;
+            jwtObj = new JsonObject();
+            obj["Jwt"] = jwtObj;
+        }
+        else
+        {
+            jwtObj = (JsonObject)obj["Jwt"];
         }
         var keyBytes = new byte[64];
         System.Security.Cryptography.RandomNumberGenerator.Fill(keyBytes);
-        jwt["Key"] = Convert.ToBase64String(keyBytes);
+        jwtObj["Key"] = Convert.ToBase64String(keyBytes);
+
+        // Generar credenciales admin por defecto (necesario en produccion)
+        JsonObject webAuthObj;
+        if (!obj.ContainsKey("WebAuth") || obj["WebAuth"] is not JsonObject)
+        {
+            webAuthObj = new JsonObject();
+            obj["WebAuth"] = webAuthObj;
+        }
+        else
+        {
+            webAuthObj = (JsonObject)obj["WebAuth"];
+        }
+        webAuthObj["AdminUsername"] = "admin";
+        webAuthObj["AdminPassword"] = "admin";
 
         if (mobileRemoteAccess)
         {

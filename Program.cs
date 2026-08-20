@@ -172,27 +172,30 @@ builder.Logging.AddProvider(new FileLoggerProvider(logsDir));
 
 // --- Fallback dinámico para la ruta de la base de datos Firebird ---
 var connectionString = builder.Configuration.GetConnectionString("FirebirdConnection");
-var myDbPath = @"C:\FirebirdData\CHOCOLATES.fdb";
-
-// Fallback 1: ruta de desarrollo Microsip → FirebirdData
-var devDbPath = @"C:\Microsip\CHOCOLATES.fdb";
-if (connectionString != null && connectionString.Contains(devDbPath) && !System.IO.File.Exists(devDbPath))
+if (builder.Environment.IsDevelopment())
 {
-    if (System.IO.File.Exists(myDbPath))
+    var myDbPath = @"C:\FirebirdData\CHOCOLATES.fdb";
+
+    // Fallback 1: ruta de desarrollo Microsip → FirebirdData
+    var devDbPath = @"C:\Microsip\CHOCOLATES.fdb";
+    if (connectionString != null && connectionString.Contains(devDbPath) && !System.IO.File.Exists(devDbPath))
     {
-        connectionString = connectionString.Replace(devDbPath, myDbPath);
-        builder.Configuration["ConnectionStrings:FirebirdConnection"] = connectionString;
+        if (System.IO.File.Exists(myDbPath))
+        {
+            connectionString = connectionString.Replace(devDbPath, myDbPath);
+            builder.Configuration["ConnectionStrings:FirebirdConnection"] = connectionString;
+        }
     }
-}
 
-// Fallback 2: ruta Downloads → FirebirdData
-var downloadsDbPath = @"C:\Users\ADMIN\Downloads\CHOCOLATES.fdb";
-if (connectionString != null && connectionString.Contains(downloadsDbPath) && !System.IO.File.Exists(downloadsDbPath))
-{
-    if (System.IO.File.Exists(myDbPath))
+    // Fallback 2: ruta Downloads → FirebirdData
+    var downloadsDbPath = @"C:\Users\ADMIN\Downloads\CHOCOLATES.fdb";
+    if (connectionString != null && connectionString.Contains(downloadsDbPath) && !System.IO.File.Exists(downloadsDbPath))
     {
-        connectionString = connectionString.Replace(downloadsDbPath, myDbPath);
-        builder.Configuration["ConnectionStrings:FirebirdConnection"] = connectionString;
+        if (System.IO.File.Exists(myDbPath))
+        {
+            connectionString = connectionString.Replace(downloadsDbPath, myDbPath);
+            builder.Configuration["ConnectionStrings:FirebirdConnection"] = connectionString;
+        }
     }
 }
 // -------------------------------------------------------------------

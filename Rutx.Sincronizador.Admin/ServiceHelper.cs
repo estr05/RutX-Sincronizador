@@ -108,9 +108,6 @@ public static class ServiceHelper
         }
     }
 
-    /// <summary>
-    /// Inicia el servicio. Devuelve (exito, mensaje).
-    /// </summary>
     public static (bool ok, string mensaje) Iniciar()
     {
         try
@@ -120,7 +117,14 @@ public static class ServiceHelper
                 return (true, "El servicio ya esta corriendo.");
 
             sc.Start();
-            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+            try
+            {
+                sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
+            }
+            catch (System.ServiceProcess.TimeoutException)
+            {
+                return (false, "Error: timeout al iniciar el servicio.");
+            }
             return (true, "Servicio iniciado.");
         }
         catch (Exception ex)
@@ -141,7 +145,19 @@ public static class ServiceHelper
                 return (true, "El servicio ya esta detenido.");
 
             sc.Stop();
-            sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+            try
+            {
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(15));
+            }
+            catch (System.ServiceProcess.TimeoutException)
+            {
+                // Hard kill by executable name if it hangs
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("Rutx.Sincronizador"))
+                {
+                    try { p.Kill(); } catch { }
+                }
+                return (false, "Error: timeout al detener el servicio. Se forzó el cierre.");
+            }
             return (true, "Servicio detenido.");
         }
         catch (Exception ex)

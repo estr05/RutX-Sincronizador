@@ -71,7 +71,7 @@ public static class InstalacionHelper
     /// ConnectionStrings__FirebirdConnection (ver CONFIGURACION_PRODUCCION.md).
     /// </summary>
     public static InstalacionInfo Instalar(string raiz, string rutaFdb, string usuario, string password,
-        string carpetaFuenteSync)
+        string carpetaFuenteSync, bool mobileRemoteAccess = false)
     {
         // ---- 1. Validar origen y destino ----
         if (string.IsNullOrWhiteSpace(carpetaFuenteSync) || !Directory.Exists(carpetaFuenteSync))
@@ -87,25 +87,50 @@ public static class InstalacionHelper
         if (string.IsNullOrWhiteSpace(Path.GetPathRoot(raiz)))
             throw new InvalidOperationException("La ruta de instalacion no es valida: " + raiz);
 
-        // ---- 2. Crear estructura del exe ----
+        // ---- 2. Pre-check: Matar proceso si el ejecutable destino esta bloqueado ----
+        var exeDestino = Path.Combine(raiz, "Rutx.Sincronizador.exe");
+        if (File.Exists(exeDestino))
+        {
+            try
+            {
+                using var fs = new FileStream(exeDestino, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                Console.WriteLine("[INFO] El sincronizador esta bloqueado en el destino. Deteniendolo antes de copiar...");
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("Rutx.Sincronizador"))
+                {
+                    try
+                    {
+                        // Ensure we don't kill our own launcher process if somehow names matched (though launcher is .Admin)
+                        if (p.Id != System.Diagnostics.Process.GetCurrentProcess().Id)
+                        {
+                            p.Kill();
+                            p.WaitForExit(3000);
+                        }
+                    }
+                    catch { /* ignore */ }
+                }
+            }
+        }
+
+        // ---- 3. Crear estructura del exe ----
         Directory.CreateDirectory(raiz);
         foreach (var carpeta in CarpetasRaiz)
             Directory.CreateDirectory(Path.Combine(raiz, carpeta));
 
-        // ---- 3. Crear estructura de C:\Microsip Extras\ (idempotente) ----
-        CrearEstructuraMicrosipExtras();
+        // ---- 4. Crear estructura de C:\Microsip Extras\ (idempotente) ----
+        var (aclsOk, aclMsj) = CrearEstructuraMicrosipExtras();
+        if (!aclsOk)
+            Console.WriteLine($"[AVISO] {aclMsj}");
+        else
+            Console.WriteLine($"[INFO] {aclMsj}");
 
-        // ---- 4. Migrar archivos legacy si existen (no borrar, solo respaldar) ----
+        // ---- 5. Migrar archivos legacy si existen (no borrar, solo respaldar) ----
         MigrarBdcLegada(raiz);
 
-        // ---- 5. Copiar ejecutables (exe + DLLs) directo a la raiz ----
-        CopiarDirectorio(carpetaFuenteSync, raiz);
-
-        // ---- 6. Copiar wwwroot a la raiz ----
-        var wwwrootOrigen = Path.Combine(carpetaFuenteSync, "wwwroot");
-        var wwwrootDestino = Path.Combine(raiz, "wwwroot");
-        if (Directory.Exists(wwwrootOrigen))
-            CopiarDirectorio(wwwrootOrigen, wwwrootDestino);
+        // ---- 6. Copiar ejecutables (exe + DLLs) directo a la raiz ----
+        CopiarDirectorio(carpetaFuenteSync, raiz); // Excluye wwwroot y appsettings por patrones
 
         // ---- 7. Generar appsettings.json en la raiz ----
         // NOTA: la contraseña real NO se persiste; debe configurarse con la
@@ -116,21 +141,18 @@ public static class InstalacionHelper
                 "No se encontro la plantilla appsettings.json en: " + plantilla);
 
         var rutaAppSettings = Path.Combine(raiz, "appsettings.json");
-        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario);
+        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, mobileRemoteAccess);
 
-        // ---- 8. Marcador instalacion.json ----
+        // ---- 8. Retornar informacion de instalacion (el marcador se escribe en el wizard) ----
         var info = new InstalacionInfo
         {
             Raiz = raiz,
-            ExeSync = Path.Combine(raiz, "Rutx.Sincronizador.exe"),
+            ExeSync = exeDestino,
             ExeAdmin = Path.Combine(AppContext.BaseDirectory, "Rutx.Sincronizador.Admin.exe"),
             Fecha = DateTime.Now,
             BdPath = Path.GetFullPath(rutaFdb),
             UsuarioFb = usuario
         };
-        var rutaMarcador = Path.Combine(raiz, NombreArchivoMarcador);
-        File.WriteAllText(rutaMarcador, JsonSerializer.Serialize(info,
-            new JsonSerializerOptions { WriteIndented = true }));
 
         return info;
     }
@@ -199,7 +221,7 @@ public static class InstalacionHelper
     /// Idempotente: Directory.CreateDirectory no falla si ya existe.
     /// No modifica ni elimina archivos existentes.
     /// </summary>
-    public static void CrearEstructuraMicrosipExtras()
+    public static (bool aclsOk, string mensaje) CrearEstructuraMicrosipExtras()
     {
         Directory.CreateDirectory(InstalacionPaths.MicrosipExtrasRaiz);
         Directory.CreateDirectory(InstalacionPaths.RutaFotos);
@@ -207,12 +229,12 @@ public static class InstalacionHelper
         Directory.CreateDirectory(InstalacionPaths.RutaRespaldos);
         Directory.CreateDirectory(InstalacionPaths.RutaLogs);
 
-        EstablecerAcls(InstalacionPaths.MicrosipExtrasRaiz);
+        return EstablecerAcls(InstalacionPaths.MicrosipExtrasRaiz);
     }
 
-    private static void EstablecerAcls(string directorio)
+    private static (bool, string) EstablecerAcls(string directorio)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows()) return (true, "No es Windows");
         
         try
         {
@@ -228,11 +250,11 @@ public static class InstalacionHelper
             security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.Modify, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
             
             dInfo.SetAccessControl(security);
-            Console.WriteLine($"[INFO] ACLs aplicadas en {directorio} (Administrators, SYSTEM, NetworkService)");
+            return (true, $"ACLs aplicadas en {directorio} (Administrators, SYSTEM, NetworkService)");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[AVISO] No se pudieron aplicar las ACLs en {directorio}: {ex.Message}");
+            return (false, $"No se pudieron aplicar las ACLs en {directorio}: {ex.Message}");
         }
     }
 
@@ -304,14 +326,18 @@ public static class InstalacionHelper
     /// con la variable de entorno ConnectionStrings__FirebirdConnection.
     /// </summary>
     private static void EscribirAppSettings(string plantilla, string destino,
-        string rutaFdb, string usuario)
+        string rutaFdb, string usuario, bool mobileRemoteAccess = false)
     {
         var nodo = JsonNode.Parse(File.ReadAllText(plantilla))
                    ?? throw new InvalidOperationException("La plantilla appsettings.json no es JSON valido.");
 
-        var conexiones = nodo["ConnectionStrings"] as JsonObject;
-        if (conexiones == null)
-            throw new InvalidOperationException("La plantilla no tiene la seccion ConnectionStrings.");
+        var obj = nodo.AsObject();
+
+        if (!obj.ContainsKey("ConnectionStrings") || obj["ConnectionStrings"] is not JsonObject conexiones)
+        {
+            conexiones = new JsonObject();
+            obj["ConnectionStrings"] = conexiones;
+        }
 
         // Construir la cadena con placeholder de contraseña (nunca la contraseña real).
         // Produccion debe sobreescribir via variable de entorno.
@@ -321,21 +347,45 @@ public static class InstalacionHelper
         conexiones["FirebirdConnection"] = cadena;
 
         // Actualizar ruta SQLite al path canonico de Microsip Extras (Consolidacion Fase B)
-        var comple = nodo["ComplementariaDb"] as JsonObject;
-        if (comple == null)
+        if (!obj.ContainsKey("ComplementariaDb") || obj["ComplementariaDb"] is not JsonObject comple)
         {
             comple = new JsonObject();
-            nodo["ComplementariaDb"] = comple;
+            obj["ComplementariaDb"] = comple;
         }
         comple["Ruta"] = InstalacionPaths.RutaDb;
 
         // Limpiar configuraciones legadas
-        nodo.AsObject().Remove("WebSqlite");
-        nodo.AsObject().Remove("ColaOffline");
+        obj.Remove("WebSqlite");
+        obj.Remove("ColaOffline");
 
-        var storage = nodo["Storage"] as JsonObject;
-        if (storage != null)
-            storage["FotosPath"] = InstalacionPaths.RutaFotos;
+        if (!obj.ContainsKey("Storage") || obj["Storage"] is not JsonObject storage)
+        {
+            storage = new JsonObject();
+            obj["Storage"] = storage;
+        }
+        storage["FotosPath"] = InstalacionPaths.RutaFotos;
+
+        // Generar Jwt:Key segura aleatoria (64 bytes en Base64) para produccion
+        if (!obj.ContainsKey("Jwt") || obj["Jwt"] is not JsonObject jwt)
+        {
+            jwt = new JsonObject();
+            obj["Jwt"] = jwt;
+        }
+        var keyBytes = new byte[64];
+        System.Security.Cryptography.RandomNumberGenerator.Fill(keyBytes);
+        jwt["Key"] = Convert.ToBase64String(keyBytes);
+
+        if (mobileRemoteAccess)
+        {
+            if (!obj.ContainsKey("Network") || obj["Network"] is not JsonObject network)
+            {
+                network = new JsonObject();
+                obj["Network"] = network;
+            }
+            network["ExternalApiEnabled"] = true;
+            network["ExternalPort"] = 5048;
+            network["ExternalApiMode"] = "ReverseProxy";
+        }
 
         File.WriteAllText(destino, nodo.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }

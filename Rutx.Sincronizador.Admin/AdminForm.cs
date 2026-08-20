@@ -205,6 +205,47 @@ public class AdminForm : Form
         if (_servicioInstalado)
             AgregarLog("Servicio Windows detectado: " + ServiceHelper.ObtenerEstado());
         AgregarLog("Presiona ▶ Iniciar para arrancar la API (puerto 5047).");
+
+        Shown += async (_, _) => await VerificarInstalacionDegradada(instalacion);
+    }
+
+    private async Task VerificarInstalacionDegradada(InstalacionInfo? instalacion)
+    {
+        if (instalacion == null) return;
+
+        bool healthOk = false;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            using var resp = await new HttpClient().GetAsync("http://localhost:5047/health", cts.Token);
+            healthOk = resp.IsSuccessStatusCode;
+        }
+        catch { /* health check fails */ }
+
+        // If health fails AND service is not running, we consider it degraded
+        if (!healthOk && !(_servicioInstalado && ServiceHelper.EstaCorriendo()) && !_sync.IsRunning)
+        {
+            var banner = new Button
+            {
+                Text = "Instalación incompleta – ¿completar configuración?",
+                BackColor = Naranja,
+                ForeColor = AzulMarino,
+                Dock = DockStyle.Top,
+                Height = 40,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Figtree", 10F, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            banner.FlatAppearance.BorderSize = 0;
+            banner.Click += (_, _) =>
+            {
+                Controls.Remove(banner);
+                InstalarOSeleccionar(instalacion);
+            };
+            Controls.Add(banner);
+            banner.BringToFront();
+        }
     }
 
     /// <summary>
@@ -232,7 +273,7 @@ public class AdminForm : Form
     /// cancela, cae al selector manual de siempre (OpenFileDialog). Devuelve el
     /// DialogResult del wizard o Cancel si se aborto todo.
     /// </summary>
-    private DialogResult InstalarOSeleccionar()
+    private DialogResult InstalarOSeleccionar(InstalacionInfo? degradada = null)
     {
         // Carpeta fuente del build del sync: en produccion se publica junto al
         // launcher (misma carpeta). En desarrollo ResolverSyncExe ya la ubico;
@@ -241,7 +282,7 @@ public class AdminForm : Form
             ? Path.GetDirectoryName(_rutaExe) ?? AppContext.BaseDirectory
             : AppContext.BaseDirectory;
 
-        using var wizard = new InstalacionWizardForm(carpetaFuente, onInstalada: (exeSync, raiz) =>
+        using var wizard = new InstalacionWizardForm(carpetaFuente, degradada, onInstalada: (exeSync, raiz) =>
         {
             _rutaExe = exeSync;
             _sync.GuardarRuta(exeSync);
@@ -302,7 +343,16 @@ public class AdminForm : Form
             AgregarLog("ERROR: no se encontro Rutx.Sincronizador.exe");
             return;
         }
-        _sync.Iniciar(_rutaExe);
+
+        if (_servicioInstalado)
+        {
+            AgregarLog("Delegando inicio al servicio Windows...");
+            EjecutarAccionServicio("iniciar");
+        }
+        else
+        {
+            _sync.Iniciar(_rutaExe);
+        }
     }
 
     private async void AbrirPanelWeb()
@@ -487,7 +537,9 @@ public class AdminForm : Form
             using var proc = UacHelper.RelanzarComoAdministrador(arg);
             if (proc == null)
             {
-                AgregarLog($"ERROR: se cancelo la solicitud de permisos de administrador. No se {accion switch { "iniciar" => "inicio", _ => "detuvo" }} el servicio.");
+                var cancelMsg = $"No se {accion switch { "iniciar" => "inicio", _ => "detuvo" }} el servicio porque se canceló la solicitud de permisos de administrador.";
+                AgregarLog("ERROR: " + cancelMsg);
+                MessageBox.Show(cancelMsg, "RUTX · Servicio Windows", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             await proc.WaitForExitAsync();

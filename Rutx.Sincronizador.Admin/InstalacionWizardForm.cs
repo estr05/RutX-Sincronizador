@@ -62,6 +62,7 @@ public class InstalacionWizardForm : Form
     private Label _lblConexion = null!;
     private Button _btnProbar = null!;
     // Paso 3
+    private CheckBox _chkAccesoMovil = null!;
     private RichTextBox _txtProgreso = null!;
     private Button _btnInstalar = null!;
     private Label _lblContadores = null!;
@@ -76,10 +77,16 @@ public class InstalacionWizardForm : Form
 
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(150) };
 
-    public InstalacionWizardForm(string carpetaFuenteSync, Action<string, string>? onInstalada = null)
+    public InstalacionWizardForm(string carpetaFuenteSync, InstalacionInfo? degradada = null, Action<string, string>? onInstalada = null)
     {
         _carpetaFuenteSync = carpetaFuenteSync;
         _onInstalada = onInstalada;
+        if (degradada != null)
+        {
+            _raiz = degradada.Raiz;
+            _rutaFdb = degradada.BdPath;
+            _usuario = degradada.UsuarioFb;
+        }
 
         Text = "RUTX · Instalación del Sincronizador";
         StartPosition = FormStartPosition.CenterScreen;
@@ -308,6 +315,7 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(Lbl("Archivo de base de datos (.fdb)", 78));
         _txtFdb = new TextBox
         {
+            Text = _rutaFdb,
             Location = new Point(0, 100),
             Width = 640,
             Font = new Font("Cascadia Code", 10F),
@@ -349,7 +357,7 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(Lbl("Usuario", 155));
         _txtUsuario = new TextBox
         {
-            Text = "SYSDBA",
+            Text = _usuario,
             Location = new Point(0, 178),
             Width = 300,
             Font = new Font("Cascadia Code", 10F),
@@ -431,13 +439,24 @@ public class InstalacionWizardForm : Form
         _btnInstalar.Click += async (_, _) => await InstalarAsync();
         p.Controls.Add(_btnInstalar);
 
-        _spinnerInstalar.Location = new Point(0, 152);
+        _chkAccesoMovil = new CheckBox
+        {
+            Text = "Permitir conexiones desde otros equipos en la red local",
+            Location = new Point(0, 140),
+            AutoSize = true,
+            Font = new Font("Figtree", 10F, FontStyle.Regular),
+            ForeColor = AzulMarino,
+            Cursor = Cursors.Hand
+        };
+        p.Controls.Add(_chkAccesoMovil);
+
+        _spinnerInstalar.Location = new Point(0, 172);
         _spinnerInstalar.Visible = false;
         p.Controls.Add(_spinnerInstalar);
 
         _lblEstadoInstalacion = new Label
         {
-            Location = new Point(30, 150),
+            Location = new Point(30, 170),
             AutoSize = true,
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             ForeColor = AzulMarino,
@@ -448,7 +467,7 @@ public class InstalacionWizardForm : Form
 
         _lblContadores = new Label
         {
-            Location = new Point(0, 148),
+            Location = new Point(0, 168),
             AutoSize = true,
             Font = new Font("Cascadia Code", 13F, FontStyle.Bold),
             ForeColor = TextoMuted,
@@ -458,7 +477,7 @@ public class InstalacionWizardForm : Form
 
         _lblSugerencia = new Label
         {
-            Location = new Point(0, 178),
+            Location = new Point(0, 198),
             AutoSize = true,
             Font = new Font("Figtree", 9.5F, FontStyle.Regular),
             ForeColor = Rojo,
@@ -469,7 +488,7 @@ public class InstalacionWizardForm : Form
 
         _txtProgreso = new RichTextBox
         {
-            Location = new Point(0, 200),
+            Location = new Point(0, 220),
             Size = new Size(770, 180),
             BackColor = ConsolaFondo,
             ForeColor = ConsolaTexto,
@@ -486,8 +505,8 @@ public class InstalacionWizardForm : Form
         // su parte inferior quedaba tapada por el pie.
         p.Layout += (_, _) =>
         {
-            var alto = Math.Max(120, p.ClientSize.Height - 204);
-            _txtProgreso.SetBounds(0, 200, Math.Max(p.ClientSize.Width, 300), alto);
+            var alto = Math.Max(120, p.ClientSize.Height - 224);
+            _txtProgreso.SetBounds(0, 220, Math.Max(p.ClientSize.Width, 300), alto);
         };
         return p;
     }
@@ -692,90 +711,121 @@ public class InstalacionWizardForm : Form
         Log("Iniciando instalación…", "inf");
         Log("Origen (build del sync): " + _carpetaFuenteSync, "inf");
 
+        bool esFreshInstall = !Directory.Exists(_raiz);
+        InstalacionInfo? infoGenerada = null;
+
         try
         {
-            // 1) Verificar puerto 5047 libre (para poder arrancar el sync y auditar)
-            bool puertoLibre;
+            // 1) Verificar puerto 5047 libre de forma robusta
+            bool puertoLibre = true;
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                using var resp = await _http.GetAsync("http://localhost:5047/health", cts.Token);
-                puertoLibre = !resp.IsSuccessStatusCode;
+                var propiedades = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties();
+                var listeners = propiedades.GetActiveTcpListeners();
+                var conexiones = propiedades.GetActiveTcpConnections();
+                
+                if (listeners.Any(l => l.Port == 5047) || conexiones.Any(c => c.LocalEndPoint.Port == 5047))
+                {
+                    puertoLibre = false;
+                }
             }
-            catch
-            {
-                puertoLibre = true;
-            }
+            catch { /* ignorar */ }
 
             if (!puertoLibre)
             {
-                Log("AVISO: el puerto 5047 ya tiene una instancia respondiendo. La auditoría automática se omitirá; podrás ejecutarla desde el panel web (⚙ Conf).", "warn");
+                Log("AVISO: el puerto 5047 ya está ocupado. Intenta cerrar cualquier instancia previa (revisa netstat -ano).", "warn");
+                throw new InvalidOperationException("El puerto 5047 está ocupado. Cierra la instancia anterior y reintenta.");
             }
 
-            // 2) Instalar (estructura + copia + appsettings + marcador)
+            // 2) Instalar (estructura + copia + appsettings) sin marcador
             Log("Creando estructura y copiando ejecutables…", "inf");
-            var info = await Task.Run(() =>
-                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync));
+            bool mobileAcc = _chkAccesoMovil.Checked;
+            infoGenerada = await Task.Run(() =>
+                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc));
 
             Log("Ejecutables copiados en: " + Path.Combine(_raiz, "Ejecutables"), "inf");
             Log("appsettings.json generado con tu BD (" + _rutaFdb + ")", "inf");
-            Log("Marcador creado: instalacion.json", "inf");
+            if (mobileAcc) Log("Configurado para permitir conexiones desde la red local (Kestrel externa).", "inf");
 
-            _instalado = true;
-            _onInstalada?.Invoke(info.ExeSync, info.Raiz);
+            // 3) Auditar en vivo (ya que verificamos puerto libre)
+            Log("Arrancando el sincronizador para validación y auditoría…", "inf");
+            using var sync = new SyncProcessController();
+            sync.LogLine += (_, l) => Log(l, NivelDe(l));
+            sync.Iniciar(infoGenerada.ExeSync, infoGenerada.Raiz);
 
-            // 3) Auditar en vivo (si el puerto esta libre)
-            if (puertoLibre)
+            if (await EsperarApiAsync())
             {
-                Log("Arrancando el sincronizador para auditar…", "inf");
-                using var sync = new SyncProcessController();
-                sync.LogLine += (_, l) => Log(l, NivelDe(l));
-                sync.Iniciar(info.ExeSync, info.Raiz);
-
-                if (await EsperarApiAsync())
-                {
-                    Log("API lista. Ejecutando auditoría de compatibilidad…", "inf");
-                    _auditoriaOk = await EjecutarAuditoriaAsync();
-                }
-                else
-                {
-                    Log("ERROR: la API no respondió en :5047. Revisa la conexión a la BD (la auditoría queda pendiente desde el panel web).", "err");
-                }
-
+                Log("API lista. Ejecutando auditoría de compatibilidad…", "inf");
+                _auditoriaOk = await EjecutarAuditoriaAsync();
+            }
+            else
+            {
                 sync.Detener();
-                Log("Sincronizador detenido (puedes iniciarlo desde la ventana principal).", "inf");
+                throw new InvalidOperationException("La API no respondió en el puerto 5047 después del arranque. Revisa la conexión a la BD.");
             }
 
-            // Ocultar el indicador de carga antes de mostrar los contadores
-            // (evita superposicion visual de etiquetas en el mismo renglon).
+            sync.Detener();
+            Log("Sincronizador detenido (validación exitosa).", "inf");
+
+            // 4) Escribir marcador como contrato final
+            var rutaMarcador = Path.Combine(_raiz, InstalacionHelper.NombreArchivoMarcador);
+            File.WriteAllText(rutaMarcador, JsonSerializer.Serialize(infoGenerada, new JsonSerializerOptions { WriteIndented = true }));
+            Log("Marcador de instalación creado exitosamente.", "inf");
+
+            _instalado = true;
+            _onInstalada?.Invoke(infoGenerada.ExeSync, infoGenerada.Raiz);
+
+            // Ocultar el indicador de carga
             _spinnerInstalar.Girar(false);
             _spinnerInstalar.Visible = false;
             _lblEstadoInstalacion.Visible = false;
 
             _lblContadores.Text = _auditoriaOk
                 ? $"  🔴 {_nFallos} faltantes    🟡 {_nAvisos} avisos    🟢 {_nOk} ok"
-                : "  Auditoría no ejecutada — desde el panel web (⚙ Conf) se re-evalúa al abrir.";
+                : "  Auditoría fallida — desde el panel web (⚙ Conf) se re-evalúa al abrir.";
             _lblSugerencia.Visible = _auditoriaOk && _nFallos > 0;
             _btnSiguiente.Enabled = true;
         }
         catch (Exception ex)
         {
             Log("ERROR de instalación: " + ex.Message, "err");
-            MessageBox.Show("La instalación falló:\n" + ex.Message, "RUTX · Instalación",
+
+            // Rollback
+            try
+            {
+                if (esFreshInstall && Directory.Exists(_raiz))
+                {
+                    Log("Limpiando carpeta de instalación fallida...", "warn");
+                    Directory.Delete(_raiz, true);
+                    Log("Carpeta limpiada exitosamente. (Los respaldos en C:\\Microsip Extras\\Respaldos se conservan).", "inf");
+                }
+                else if (Directory.Exists(_raiz))
+                {
+                    Log("Marcando instalación como fallida (instalacion.error.json)...", "warn");
+                    File.WriteAllText(Path.Combine(_raiz, "instalacion.error.json"), $"Error: {ex.Message}\n{ex.StackTrace}");
+                    var marcadorCorrecto = Path.Combine(_raiz, InstalacionHelper.NombreArchivoMarcador);
+                    if (File.Exists(marcadorCorrecto)) File.Delete(marcadorCorrecto);
+                }
+            }
+            catch (Exception rEx)
+            {
+                Log("ERROR al intentar revertir la instalación: " + rEx.Message, "err");
+            }
+
+            MessageBox.Show("La instalación falló:\n" + ex.Message + "\n\nCualquier respaldo (C:\\Microsip Extras\\Respaldos) se conserva intacto.", "RUTX · Instalación",
                 MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
             _btnInstalar.Enabled = true;
             _btnAtras.Enabled = true;
-            _spinnerInstalar.Girar(false);
-            _spinnerInstalar.Visible = false;
-            _lblEstadoInstalacion.Visible = false;
-
-            // Si la instalacion ya quedo hecha, siempre permitir avanzar aunque la
-            // auditoria en vivo falle o el arranque del sync lance una excepcion:
-            // los ejecutables YA estan copiados y la config YA se genero.
-            _btnSiguiente.Enabled = _instalado;
+            if (!_instalado)
+            {
+                _spinnerInstalar.Girar(false);
+                _spinnerInstalar.Visible = false;
+                _lblEstadoInstalacion.Visible = false;
+                _btnSiguiente.Enabled = false;
+            }
         }
     }
 

@@ -33,19 +33,33 @@ namespace Rutx.Sincronizador.Security
             // 2. Validacion de Firebird
             var fbConn = configuration.GetConnectionString("FirebirdConnection");
             if (string.IsNullOrWhiteSpace(fbConn) || 
-                fbConn.Contains("masterkey", StringComparison.OrdinalIgnoreCase) || 
                 fbConn.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection no puede estar vacia, ni usar contrasenas por defecto ('masterkey') o placeholders (CHANGE_ME) en Produccion.");
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection no puede estar vacia ni contener placeholders (CHANGE_ME) en Produccion.");
             }
 
             try
             {
                 var builder = new FbConnectionStringBuilder(fbConn);
-                if (string.IsNullOrWhiteSpace(builder.Password) || 
-                    builder.Password.Equals("masterkey", StringComparison.OrdinalIgnoreCase))
+                if (string.IsNullOrWhiteSpace(builder.Password))
                 {
-                    throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection debe incluir una contrasena valida (Password no puede estar vacia ni ser 'masterkey').");
+                    throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection debe incluir una contrasena valida (Password no puede estar vacia).");
+                }
+
+                if (builder.Password.Equals("masterkey", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool esLocal = string.IsNullOrWhiteSpace(builder.DataSource) || 
+                                   builder.DataSource.Equals("localhost", StringComparison.OrdinalIgnoreCase) || 
+                                   builder.DataSource.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase);
+
+                    if (esLocal)
+                    {
+                        Console.Error.WriteLine("[SEGURIDAD - AVISO] Firebird usa la contrasena por defecto ('masterkey') en localhost. Se recomienda cambiarla para mayor seguridad.");
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: FirebirdConnection no puede usar contrasenas por defecto ('masterkey') en servidores remotos.");
+                    }
                 }
             }
             catch (Exception ex) when (!(ex is InvalidOperationException))

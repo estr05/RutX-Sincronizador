@@ -47,13 +47,12 @@ public static class InstalacionHelper
 
     // Subcarpetas que se crean en la raiz (junto al exe).
     // "Data" se elimina: la BD complementaria vive en C:\Microsip Extras\
-    private static readonly string[] CarpetasRaiz = { "wwwroot", "Logs", "backups" };
+    private static readonly string[] CarpetasRaiz = { "Logs", "backups" };
 
-    // Archivos que NO se copian del folder de build a la raiz
+    // Archivos/Carpetas que NO se copian del folder de build a la raiz
     private static readonly string[] ExcluirPatrones =
     {
         "Data",                  // BD complementaria: vive en Microsip Extras
-        "wwwroot",               // se copia aparte a la raiz
         "appsettings",           // se genera fresco en la raiz
         "auditoria_resultado",   // resultado previo, irrelevante
     };

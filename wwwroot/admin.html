@@ -605,7 +605,8 @@
     </div>
   </section>
 
-  <!-- ================= JWT ================= -->
+  <!-- ================= JWT (Oculto en producción: autogestionado por el instalador) ================= -->
+  <!--
   <section class="card">
     <div class="card-header">
       <div class="tick"></div>
@@ -620,6 +621,7 @@
       </div>
     </div>
   </section>
+  -->
 
   <!-- ================= Cola offline ================= -->
   <section class="card">
@@ -802,6 +804,11 @@ async function guardarConfig() {
   document.querySelectorAll('[data-cfg-check]').forEach(inp => {
     setPath(nuevo, inp.dataset.cfgCheck, inp.checked);
   });
+
+  // Preservar la sección Jwt (clave autogestionada): se conserva la del archivo.
+  if (configActual.Jwt) {
+    nuevo.Jwt = { ...configActual.Jwt };
+  }
 
   // La cadena Firebird es de solo lectura por ahora: se conserva la del archivo.
   // (Sin esto, al no haber input data-cfg para ella, se guardaria vacia y romperia el arranque.)

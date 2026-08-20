@@ -114,6 +114,15 @@ public static class InstalacionHelper
         foreach (var carpeta in CarpetasRaiz)
             Directory.CreateDirectory(Path.Combine(raiz, carpeta));
 
+        // Aplicar ACLs heredables a la raiz de instalacion:
+        // El subproceso del sync (hijo del wizard) necesita poder ESCRIBIR en Logs\ y backups\.
+        // C:\ProgramData\ solo da ReadAndExecute a Users por defecto, lo que bloquearía al sync.
+        var (aclsRaizOk, aclsRaizMsj) = EstablecerAclsRaizInstalacion(raiz);
+        if (!aclsRaizOk)
+            Console.WriteLine($"[AVISO] {aclsRaizMsj}");
+        else
+            Console.WriteLine($"[INFO] {aclsRaizMsj}");
+
         // ---- 4. Crear estructura de C:\Microsip Extras\ (idempotente) ----
         var (aclsOk, aclMsj) = CrearEstructuraMicrosipExtras();
         if (!aclsOk)
@@ -248,6 +257,45 @@ public static class InstalacionHelper
         catch (Exception ex)
         {
             return (false, $"No se pudieron aplicar las ACLs en {directorio}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Aplica permisos heredables a la raiz de instalacion (C:\ProgramData\RUTX\Sincronizador\).
+    /// El subproceso del sync necesita Modify (lectura + escritura) en Logs\ y backups\,
+    /// pero C:\ProgramData\ solo da ReadAndExecute a Users por defecto.
+    /// NO rompe la herencia existente: solo agrega reglas.
+    /// </summary>
+    private static (bool, string) EstablecerAclsRaizInstalacion(string raiz)
+    {
+        if (!OperatingSystem.IsWindows()) return (true, "No es Windows");
+        try
+        {
+            var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+            var dInfo = new DirectoryInfo(raiz);
+            var security = dInfo.GetAccessControl();
+
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system  = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var service = new SecurityIdentifier(WellKnownSidType.NetworkServiceSid, null);
+            var users   = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+            var currentUser = WindowsIdentity.GetCurrent().User;
+
+            security.AddAccessRule(new FileSystemAccessRule(admins,  FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(system,  FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.Modify,      inherit, PropagationFlags.None, AccessControlType.Allow));
+            // El grupo Users necesita Modify para que el sync (proceso hijo) escriba Logs\ y backups\
+            security.AddAccessRule(new FileSystemAccessRule(users,   FileSystemRights.Modify,      inherit, PropagationFlags.None, AccessControlType.Allow));
+            // El usuario interactivo que realizó la instalación siempre tiene control total
+            if (currentUser != null)
+                security.AddAccessRule(new FileSystemAccessRule(currentUser, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
+
+            dInfo.SetAccessControl(security);
+            return (true, $"ACLs de instalacion aplicadas en {raiz}");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"No se pudieron aplicar ACLs de instalacion en {raiz}: {ex.Message}");
         }
     }
 

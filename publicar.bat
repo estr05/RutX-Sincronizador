@@ -49,6 +49,7 @@ echo     - Rutx.Sincronizador.Admin.exe
 echo     - wwwroot\admin.html    (panel web)
 echo ============================================================
 echo.
+explorer "%~dp0Sincronizador"
 pause
 exit /b 0
 

@@ -163,7 +163,11 @@ public class PhysicalMigrationService
                 sourceColaCount, insertedColaCount, sourceVentasCount, insertedVentasCount, rejectedRows);
             _logger.LogInformation("Checksum Legacy: {ChecksumLegacy} | Checksum Consolidada: {ChecksumConsolidada}", sourceColaChecksum, targetColaChecksum);
 
-            sourceConn.Close();
+            await readerVentas.DisposeAsync();
+            await cmdSelectVentas.DisposeAsync();
+            await sourceConn.CloseAsync();
+            await sourceConn.DisposeAsync();
+            SqliteConnection.ClearPool(sourceConn);
 
             try
             {

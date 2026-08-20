@@ -74,8 +74,8 @@ public class AdminForm : Form
         var menuTray = new ContextMenuStrip();
         menuTray.Items.Add("Abrir", null, (_, _) => MostrarVentana());
         menuTray.Items.Add(new ToolStripSeparator());
-        menuTray.Items.Add("Iniciar servicio", null, (_, _) => EjecutarAccionServicio("iniciar"));
-        menuTray.Items.Add("Detener servicio", null, (_, _) => EjecutarAccionServicio("detener"));
+        menuTray.Items.Add("Iniciar servicio", null, async (_, _) => await EjecutarAccionServicioAsync("iniciar"));
+        menuTray.Items.Add("Detener servicio", null, async (_, _) => await EjecutarAccionServicioAsync("detener"));
         menuTray.Items.Add(new ToolStripSeparator());
         menuTray.Items.Add("Salir", null, (_, _) => SalirDefinitivamente());
         _trayIcon.ContextMenuStrip = menuTray;
@@ -96,7 +96,7 @@ public class AdminForm : Form
         };
 
         _btnIniciar = CrearBoton("▶  Iniciar", AzulMarino, Color.White);
-        _btnIniciar.Click += (_, _) => IniciarSync();
+        _btnIniciar.Click += async (_, _) => await IniciarSyncAsync();
 
         _btnDetener = CrearBoton("⏹  Detener", Rojo, Color.White);
         _btnDetener.Click += (_, _) => _sync.Detener();
@@ -336,7 +336,7 @@ public class AdminForm : Form
         _lblEstado.SetBounds(izquierda, 10, Math.Max(ancho, 1), 40);
     }
 
-    private void IniciarSync()
+    private async Task IniciarSyncAsync()
     {
         if (string.IsNullOrEmpty(_rutaExe) || !System.IO.File.Exists(_rutaExe))
         {
@@ -347,7 +347,7 @@ public class AdminForm : Form
         if (_servicioInstalado)
         {
             AgregarLog("Delegando inicio al servicio Windows...");
-            EjecutarAccionServicio("iniciar");
+            await EjecutarAccionServicioAsync("iniciar");
         }
         else
         {
@@ -360,20 +360,24 @@ public class AdminForm : Form
         _btnConfWeb.Enabled = false;
         try
         {
-            // 1) Si el sync no esta corriendo, iniciarlo primero
-            if (!_sync.IsRunning)
+            // 1) Si el sync (proceso hijo o servicio) no esta corriendo, iniciarlo primero
+            bool corriendoSvc = _servicioInstalado && ServiceHelper.EstaCorriendo();
+            if (!_sync.IsRunning && !corriendoSvc)
             {
                 AgregarLog("El sincronizador no esta corriendo: iniciandolo...");
-                IniciarSync();
+                await IniciarSyncAsync();
             }
 
-            // 2) Esperar a que /health responda (max ~15 s)
+            // 2) Esperar a que /health responda (max ~20 s)
             AgregarLog("Esperando respuesta de la API en :5047...");
             bool listo = false;
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-            for (int i = 0; i < 30; i++)
+            for (int i = 0; i < 40; i++)
             {
-                if (!_sync.IsRunning) break; // se detuvo mientras esperaba
+                corriendoSvc = _servicioInstalado && ServiceHelper.EstaCorriendo();
+                // Si ambos (proceso hijo y servicio) están detenidos, no hay nada que esperar
+                if (!_sync.IsRunning && !corriendoSvc) break;
+
                 try
                 {
                     var resp = await http.GetAsync("http://localhost:5047/health");
@@ -519,7 +523,7 @@ public class AdminForm : Form
         Application.Exit();
     }
 
-    private async void EjecutarAccionServicio(string accion)
+    private async Task EjecutarAccionServicioAsync(string accion)
     {
         if (!ServiceHelper.Existe())
         {
@@ -572,9 +576,9 @@ public class AdminForm : Form
                 MessageBoxIcon.Question);
 
             if (resultado == DialogResult.Yes)
-                EjecutarAccionServicio("iniciar");
+                await EjecutarAccionServicioAsync("iniciar");
             else if (resultado == DialogResult.No)
-                EjecutarAccionServicio("detener");
+                await EjecutarAccionServicioAsync("detener");
         }
         else
         {

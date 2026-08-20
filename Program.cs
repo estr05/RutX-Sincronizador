@@ -92,16 +92,11 @@ builder.Host.UseWindowsService(options =>
 // ----------------------------------------------------------------
 builder.WebHost.ConfigureKestrel((context, options) =>
 {
-    if (context.HostingEnvironment.IsDevelopment())
-    {
-        // En desarrollo, permitimos trafico de cualquier IP (emulador, WiFi, Tailscale)
-        options.ListenAnyIP(5047);
-    }
-    else
-    {
-        // 1. Listener Local / Administrativo (siempre en loopback en produccion)
-        options.ListenLocalhost(5047);
-    }
+    // 1. Listener de la API y Panel Administrativo:
+    // Habilitado en AnyIP (0.0.0.0:5047) para permitir pruebas directas desde la App Móvil
+    // en la red Wi-Fi local (ej. 192.168.1.68), VPN Tailscale (100.71.116.89) y navegador local (localhost).
+    // NOTA: Para producción estricta con proxy reverso/Cloudflare Tunnel, se puede restringir a ListenLocalhost.
+    options.ListenAnyIP(5047);
 
     // 2. Listener Remoto / API (deshabilitado por defecto)
     var externalEnabled = context.Configuration.GetValue<bool>("Network:ExternalApiEnabled");

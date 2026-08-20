@@ -99,7 +99,8 @@ internal static class Program
             var msg = $"El launcher sufrió un error inesperado:\n\n{ex.Message}";
             using var f = new Form { TopMost = true };
             MessageBox.Show(f, msg, "RUTX · Error Crítico", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            System.IO.File.AppendAllText("launcher_crash.log", $"[{DateTime.Now}] {ex}\n\n");
+            var logPath = System.IO.Path.Combine(AppContext.BaseDirectory, "launcher_crash.log");
+            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now}] {ex}\n\n");
         }
         catch { /* Fallback fail silently if we can't even show a messagebox */ }
         finally

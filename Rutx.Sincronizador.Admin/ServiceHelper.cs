@@ -123,7 +123,12 @@ public static class ServiceHelper
             }
             catch (System.ServiceProcess.TimeoutException)
             {
-                return (false, "Error: timeout al iniciar el servicio.");
+                // Hard kill by executable name if start hangs to free port 5047
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("Rutx.Sincronizador"))
+                {
+                    try { p.Kill(); } catch { }
+                }
+                return (false, "Error: timeout al iniciar el servicio. Se forzó el cierre del proceso huérfano.");
             }
             return (true, "Servicio iniciado.");
         }

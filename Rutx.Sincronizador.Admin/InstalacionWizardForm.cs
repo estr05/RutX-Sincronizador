@@ -59,6 +59,8 @@ public class InstalacionWizardForm : Form
     private TextBox _txtFdb = null!;
     private TextBox _txtUsuario = null!;
     private TextBox _txtPassword = null!;
+    private TextBox _txtWebPassword = null!;
+    private string _webPassword = "admin";
     private Label _lblConexion = null!;
     private Button _btnProbar = null!;
     // Paso 3
@@ -297,12 +299,13 @@ public class InstalacionWizardForm : Form
             raiz = InstalacionHelper.RutaDefault;
         _lblEstructura.Text = "Destino: " + raiz + "\\"
             + "\n└─ Estructura que se creará:"
-            + "\n    ├─ Ejecutables\\     → Rutx.Sincronizador.exe + DLLs"
-            + "\n    ├─ wwwroot\\        → panel /admin"
-            + "\n    ├─ appsettings.json → BD, usuario, password, IDs"
-            + "\n    ├─ Data\\           → cola offline (SQLite)"
-            + "\n    ├─ Logs\\           → bitácora"
-            + "\n    └─ instalacion.json → marcador que usa el launcher";
+            + "\n    ├─ Rutx.Sincronizador.exe + DLLs (raíz plana)"
+            + "\n    ├─ wwwroot\\        → panel web /admin"
+            + "\n    ├─ appsettings.json → configuración protegida con ACLs"
+            + "\n    ├─ Logs\\           → bitácora de ejecución"
+            + "\n    ├─ backups\\        → respaldos web"
+            + "\n    └─ instalacion.json → marcador de estado"
+            + "\n\n* La BD complementaria y fotos se ubican en C:\\Microsip Extras\\";
     }
 
     private Panel CrearPanelBd()
@@ -312,19 +315,19 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(Titulo("Selecciona la base de datos de Microsip",
             "Se verificará que el archivo .fdb exista y que las credenciales conecten. Solo lectura: nada se modifica."));
 
-        p.Controls.Add(Lbl("Archivo de base de datos (.fdb)", 78));
+        p.Controls.Add(Lbl("Archivo de base de datos (.fdb)", 70));
         _txtFdb = new TextBox
         {
             Text = _rutaFdb,
-            Location = new Point(0, 100),
+            Location = new Point(0, 92),
             Width = 640,
             Font = new Font("Cascadia Code", 10F),
             BorderStyle = BorderStyle.FixedSingle,
             ReadOnly = true
         };
         var btnBuscar = CrearBoton("Buscar BD…", AzulMarino, Color.White, null);
-        btnBuscar.Size = new Size(120, 34);
-        btnBuscar.Location = new Point(656, 96);
+        btnBuscar.Size = new Size(120, 32);
+        btnBuscar.Location = new Point(656, 88);
         btnBuscar.Click += async (_, _) =>
         {
             using var dlg = new OpenFileDialog
@@ -354,32 +357,46 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(_txtFdb);
         p.Controls.Add(btnBuscar);
 
-        p.Controls.Add(Lbl("Usuario", 155));
+        p.Controls.Add(Lbl("Usuario Firebird", 135));
         _txtUsuario = new TextBox
         {
             Text = _usuario,
-            Location = new Point(0, 178),
-            Width = 300,
+            Location = new Point(0, 155),
+            Width = 280,
             Font = new Font("Cascadia Code", 10F),
             BorderStyle = BorderStyle.FixedSingle
         };
         p.Controls.Add(_txtUsuario);
 
-        p.Controls.Add(Lbl("Contraseña", 222));
+        p.Controls.Add(Lbl("Contraseña Firebird", 195));
         _txtPassword = new TextBox
         {
             Text = "",
-            Location = new Point(0, 245),
-            Width = 300,
+            Location = new Point(0, 215),
+            Width = 280,
             Font = new Font("Cascadia Code", 10F),
             BorderStyle = BorderStyle.FixedSingle,
             UseSystemPasswordChar = true
         };
         p.Controls.Add(_txtPassword);
 
-        _btnProbar = CrearBoton("Probar conexión", Naranja, AzulMarino, null);
-        _btnProbar.Size = new Size(170, 36);
-        _btnProbar.Location = new Point(0, 300);
+        var lblWebPass = Lbl("Contraseña Panel Web (mín. 8 caracteres)", 195);
+        lblWebPass.Location = new Point(320, 195);
+        p.Controls.Add(lblWebPass);
+        _txtWebPassword = new TextBox
+        {
+            Text = "Admin1234!",
+            Location = new Point(320, 215),
+            Width = 280,
+            Font = new Font("Cascadia Code", 10F),
+            BorderStyle = BorderStyle.FixedSingle,
+            UseSystemPasswordChar = true
+        };
+        p.Controls.Add(_txtWebPassword);
+
+        _btnProbar = CrearBoton("Probar conexión Firebird", Naranja, AzulMarino, null);
+        _btnProbar.Size = new Size(200, 34);
+        _btnProbar.Location = new Point(0, 260);
         _btnProbar.Click += async (_, _) =>
         {
             try
@@ -397,31 +414,28 @@ public class InstalacionWizardForm : Form
         };
         p.Controls.Add(_btnProbar);
 
-        _spinnerConexion.Location = new Point(0, 355);
+        _spinnerConexion.Location = new Point(0, 305);
         _spinnerConexion.Visible = false;
         p.Controls.Add(_spinnerConexion);
 
         _lblConexion = new Label
         {
-            Location = new Point(30, 352),
+            Location = new Point(30, 303),
             AutoSize = true,
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             ForeColor = TextoMuted,
-            Text = "Selecciona primero la BD."
+            Text = "Selecciona primero la BD y prueba conexión."
         };
         p.Controls.Add(_lblConexion);
 
-        // Nota de credenciales: va JUNTO al botón "Probar conexión" para estar
-        // siempre visible. Antes estaba en y=400, debajo del panel de contenido,
-        // y quedaba oculta detrás del pie (invisible).
         p.Controls.Add(new Label
         {
-            Location = new Point(184, 304),
+            Location = new Point(210, 264),
             AutoSize = true,
             MaximumSize = new Size(520, 0),
-            Font = new Font("Figtree", 9F, FontStyle.Regular),
+            Font = new Font("Figtree", 8.5F, FontStyle.Regular),
             ForeColor = TextoMuted,
-            Text = "Escribe la contraseña de tu base de datos Firebird (el instalador NO usa contraseñas por defecto) y presiona \"Probar conexión\"."
+            Text = "El panel web se creará con usuario 'admin' y la contraseña indicada (se pedirá cambio al primer acceso)."
         });
         return p;
     }
@@ -623,6 +637,14 @@ public class InstalacionWizardForm : Form
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
+                var webPass = _txtWebPassword.Text.Trim();
+                if (webPass.Length < 8)
+                {
+                    MessageBox.Show("La contraseña del panel web debe tener al menos 8 caracteres.", "RUTX · Instalación",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                _webPassword = webPass;
                 IrAPaso(3);
                 break;
 
@@ -741,7 +763,7 @@ public class InstalacionWizardForm : Form
             Log("Creando estructura y copiando ejecutables…", "inf");
             bool mobileAcc = _chkAccesoMovil.Checked;
             infoGenerada = await Task.Run(() =>
-                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc));
+                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc, _webPassword));
 
             Log("Ejecutables copiados en: " + _raiz, "inf");
             Log("appsettings.json generado con tu BD (" + _rutaFdb + ")", "inf");
@@ -753,7 +775,8 @@ public class InstalacionWizardForm : Form
             sync.LogLine += (_, l) => Log(l, NivelDe(l));
             sync.Iniciar(infoGenerada.ExeSync, infoGenerada.Raiz);
 
-            if (await EsperarApiAsync())
+            var (apiOk, razonApi) = await EsperarApiAsync(sync);
+            if (apiOk)
             {
                 Log("API lista. Ejecutando auditoría de compatibilidad…", "inf");
                 _auditoriaOk = await EjecutarAuditoriaAsync();
@@ -761,7 +784,7 @@ public class InstalacionWizardForm : Form
             else
             {
                 sync.Detener();
-                throw new InvalidOperationException("La API no respondió en el puerto 5047 después del arranque. Revisa la conexión a la BD.");
+                throw new InvalidOperationException(razonApi);
             }
 
             sync.Detener();
@@ -829,20 +852,24 @@ public class InstalacionWizardForm : Form
         }
     }
 
-    private async Task<bool> EsperarApiAsync()
+    private async Task<(bool ok, string razon)> EsperarApiAsync(SyncProcessController sync)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-        for (int i = 0; i < 40; i++)
+        for (int i = 0; i < 50; i++)
         {
+            if (!sync.IsRunning)
+                return (false, "El proceso del sincronizador terminó inesperadamente. Revisa los logs en rojo arriba (error de conexión a la BD u otro fallo al arrancar).");
+
             try
             {
                 var resp = await http.GetAsync("http://localhost:5047/health");
-                if (resp.IsSuccessStatusCode) return true;
+                if (resp.IsSuccessStatusCode) return (true, "ok");
             }
             catch { /* aun no levanta */ }
-            await Task.Delay(500);
+
+            await Task.Delay(i < 10 ? 200 : 500);
         }
-        return false;
+        return (false, "La API no respondió en el tiempo esperado (15 s). Si Firebird no está en ejecución, inícialo primero.");
     }
 
     private async Task<bool> EjecutarAuditoriaAsync()
@@ -901,6 +928,7 @@ public class InstalacionWizardForm : Form
         sb.AppendLine($"Carpeta de instalación : {_raiz}");
         sb.AppendLine($"Base de datos           : {_rutaFdb}");
         sb.AppendLine($"Usuario Firebird        : {_usuario}");
+        sb.AppendLine($"Panel web               : usuario='admin' | contraseña='{_webPassword}' (cambio obligatorio al ingresar)");
         sb.AppendLine();
         sb.AppendLine(_auditoriaOk
             ? $"Resultado de la auditoría :  🔴 {_nFallos} faltantes   🟡 {_nAvisos} avisos   🟢 {_nOk} ok"

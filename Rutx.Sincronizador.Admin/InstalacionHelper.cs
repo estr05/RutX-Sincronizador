@@ -64,14 +64,9 @@ public static class InstalacionHelper
     /// Ejecuta la instalacion completa. Devuelve la InstalacionInfo creada.
     /// Lanza excepcion con mensaje claro si algo falla a mitad (para que el
     /// wizard lo muestre y no deje una instalacion a medias sin avisar).
-    ///
-    /// SEGURIDAD: la contraseña se usa SOLO para la prueba de conexion en el
-    /// wizard. El appsettings.json generado nunca contiene la contraseña real;
-    /// debe proveerla en produccion mediante la variable de entorno
-    /// ConnectionStrings__FirebirdConnection (ver CONFIGURACION_PRODUCCION.md).
     /// </summary>
     public static InstalacionInfo Instalar(string raiz, string rutaFdb, string usuario, string password,
-        string carpetaFuenteSync, bool mobileRemoteAccess = false)
+        string carpetaFuenteSync, bool mobileRemoteAccess = false, string webPassword = "admin")
     {
         // ---- 1. Validar origen y destino ----
         if (string.IsNullOrWhiteSpace(carpetaFuenteSync) || !Directory.Exists(carpetaFuenteSync))
@@ -132,16 +127,14 @@ public static class InstalacionHelper
         // ---- 6. Copiar ejecutables (exe + DLLs) directo a la raiz ----
         CopiarDirectorio(carpetaFuenteSync, raiz); // Excluye wwwroot y appsettings por patrones
 
-        // ---- 7. Generar appsettings.json en la raiz ----
-        // NOTA: la contraseña real NO se persiste; debe configurarse con la
-        // variable de entorno ConnectionStrings__FirebirdConnection en produccion.
+        // ---- 7. Generar appsettings.json en la raiz con credenciales verificadas y ACLs restrictivas ----
         var plantilla = Path.Combine(carpetaFuenteSync, "appsettings.json");
         if (!File.Exists(plantilla))
             throw new InvalidOperationException(
                 "No se encontro la plantilla appsettings.json en: " + plantilla);
 
         var rutaAppSettings = Path.Combine(raiz, "appsettings.json");
-        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, mobileRemoteAccess);
+        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, password, mobileRemoteAccess, webPassword);
 
         // ---- 8. Retornar informacion de instalacion (el marcador se escribe en el wizard) ----
         var info = new InstalacionInfo
@@ -320,13 +313,11 @@ public static class InstalacionHelper
     }
 
     /// <summary>
-    /// Genera appsettings.json en la raiz de instalacion.
-    /// SEGURIDAD: la contraseña NUNCA se escribe en el archivo generado.
-    /// El placeholder CHANGE_ME_FIREBIRD_PASSWORD debe sustituirse en produccion
-    /// con la variable de entorno ConnectionStrings__FirebirdConnection.
+    /// Genera appsettings.json en la raiz de instalacion con las credenciales verificadas
+    /// y aplica ACLs restrictivas al archivo generado.
     /// </summary>
     private static void EscribirAppSettings(string plantilla, string destino,
-        string rutaFdb, string usuario, bool mobileRemoteAccess = false)
+        string rutaFdb, string usuario, string password, bool mobileRemoteAccess = false, string webPassword = "admin")
     {
         var nodo = JsonNode.Parse(File.ReadAllText(plantilla))
                    ?? throw new InvalidOperationException("La plantilla appsettings.json no es JSON valido.");
@@ -339,9 +330,8 @@ public static class InstalacionHelper
             obj["ConnectionStrings"] = conexiones;
         }
 
-        // Construir la cadena con placeholder de contraseña (nunca la contraseña real).
-        // Produccion debe sobreescribir via variable de entorno.
-        var cadena = FbConexionHelper.ConstruirCadena(rutaFdb, usuario, "CHANGE_ME_FIREBIRD_PASSWORD");
+        // Construir la cadena con la contraseña real verificada
+        var cadena = FbConexionHelper.ConstruirCadena(rutaFdb, usuario, password);
         cadena = cadena.Replace("Pooling=False", "Pooling=True");
 
         conexiones["FirebirdConnection"] = cadena;
@@ -380,7 +370,7 @@ public static class InstalacionHelper
         System.Security.Cryptography.RandomNumberGenerator.Fill(keyBytes);
         jwtObj["Key"] = Convert.ToBase64String(keyBytes);
 
-        // Generar credenciales admin por defecto (necesario en produccion)
+        // Generar credenciales admin para el panel web (con rotacion obligatoria al primer login)
         JsonObject webAuthObj;
         if (!obj.ContainsKey("WebAuth") || obj["WebAuth"] is not JsonObject)
         {
@@ -392,7 +382,7 @@ public static class InstalacionHelper
             webAuthObj = (JsonObject)obj["WebAuth"];
         }
         webAuthObj["AdminUsername"] = "admin";
-        webAuthObj["AdminPassword"] = "admin";
+        webAuthObj["AdminPassword"] = string.IsNullOrWhiteSpace(webPassword) ? "admin" : webPassword;
 
         if (mobileRemoteAccess)
         {
@@ -407,5 +397,31 @@ public static class InstalacionHelper
         }
 
         File.WriteAllText(destino, nodo.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AplicarAclAppSettings(destino);
+    }
+
+    private static void AplicarAclAppSettings(string rutaArchivo)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            var fi = new FileInfo(rutaArchivo);
+            var security = fi.GetAccessControl();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var service = new SecurityIdentifier(WellKnownSidType.NetworkServiceSid, null);
+
+            security.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new FileSystemAccessRule(service, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+
+            fi.SetAccessControl(security);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AVISO] No se pudieron restringir ACLs de appsettings.json: {ex.Message}");
+        }
     }
 }

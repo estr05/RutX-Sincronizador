@@ -40,6 +40,8 @@ public class PhysicalMigrationService
         await using var targetConn = await _targetFactory.CreateConnectionAsync(ct);
         await using var targetTx = await targetConn.BeginTransactionAsync(ct);
 
+        bool committed = false;
+
         try
         {
             await using var sourceConn = new SqliteConnection($"Data Source={legacyDbPath}");
@@ -73,10 +75,10 @@ public class PhysicalMigrationService
                     var cmdInsertCola = targetConn.CreateCommand();
                     cmdInsertCola.Transaction = (SqliteTransaction)targetTx;
                     cmdInsertCola.CommandText = @"
-                        INSERT OR IGNORE INTO rutx_cola_operaciones 
+                        INSERT OR IGNORE INTO rutx_cola_operaciones
                         (operacion_id, tipo_operacion, payload, estado, intentos, max_intentos, siguiente_reintento, error_ultimo_intento, fecha_creacion, fecha_modificacion, lease_until, dead_letter)
                         VALUES (@op, @tipo, @payload, @estado, @intentos, @max, @sig, @err, @fCrea, @fMod, NULL, 0)";
-                    
+
                     cmdInsertCola.Parameters.AddWithValue("@op", operacionId);
                     cmdInsertCola.Parameters.AddWithValue("@tipo", tipoOperacion);
                     cmdInsertCola.Parameters.AddWithValue("@payload", payload);
@@ -119,10 +121,10 @@ public class PhysicalMigrationService
                     var cmdInsertVentas = targetConn.CreateCommand();
                     cmdInsertVentas.Transaction = (SqliteTransaction)targetTx;
                     cmdInsertVentas.CommandText = @"
-                        INSERT OR IGNORE INTO rutx_ventas_sincronizadas 
+                        INSERT OR IGNORE INTO rutx_ventas_sincronizadas
                         (venta_movil_id, docto_pv_id, folio, estado, fecha_creacion)
                         VALUES (@vmid, @dId, @folio, @estado, @fecha)";
-                    
+
                     cmdInsertVentas.Parameters.AddWithValue("@vmid", vmid);
                     cmdInsertVentas.Parameters.AddWithValue("@dId", dId ?? (object)DBNull.Value);
                     cmdInsertVentas.Parameters.AddWithValue("@folio", folio ?? (object)DBNull.Value);
@@ -151,9 +153,10 @@ public class PhysicalMigrationService
             }
             targetColaChecksum = ComputeSha256(sbTargetChecksum.ToString());
 
-            // Tolerancia: si inserted < source pero fue por IGNORE (ya existia), el checksum de la tabla consolidada podría variar por elementos nativos de web.db. 
+            // Tolerancia: si inserted < source pero fue por IGNORE (ya existia), el checksum de la tabla consolidada podría variar por elementos nativos de web.db.
             // Para el alcance de la Fase B, aceptamos la transaccion.
             await targetTx.CommitAsync(ct);
+            committed = true;
 
             _logger.LogInformation(
                 "Migracion Fisica: Completada. Cola: {SourceCola}->{InsertCola}. Ventas: {SourceVentas}->{InsertVentas}. Rechazos: {RejectedRows}.",
@@ -161,15 +164,28 @@ public class PhysicalMigrationService
             _logger.LogInformation("Checksum Legacy: {ChecksumLegacy} | Checksum Consolidada: {ChecksumConsolidada}", sourceColaChecksum, targetColaChecksum);
 
             sourceConn.Close();
-            File.Move(legacyDbPath, $"{legacyDbPath}.migrated");
-            _logger.LogInformation("Migracion Fisica: Archivo legacy renombrado a .migrated para evitar duplicacion.");
+
+            try
+            {
+                File.Move(legacyDbPath, $"{legacyDbPath}.migrated");
+                _logger.LogInformation("Migracion Fisica: Archivo legacy renombrado a .migrated para evitar duplicacion.");
+            }
+            catch (Exception moveEx)
+            {
+                _logger.LogWarning(moveEx, "Migracion Fisica: No se pudo renombrar el archivo legacy. La migracion ya fue commiteada correctamente.");
+            }
 
             return true;
         }
         catch (Exception ex)
         {
-            await targetTx.RollbackAsync(ct);
-            _logger.LogError(ex, "Migracion Fisica: Error fatal durante el proceso. Transaccion target revertida (solo la migracion). La base legacy se mantiene intacta. Revisa el archivo de backup: {BackupPath}", backupPath);
+            if (!committed)
+            {
+                await targetTx.RollbackAsync(ct);
+            }
+
+            _logger.LogError(ex, "Migracion Fisica: Error durante el proceso. {Status} La base legacy se mantiene intacta. Revisa el archivo de backup: {BackupPath}",
+                committed ? "La transaccion ya fue commiteada." : "Transaccion target revertida (solo la migracion).", backupPath);
             return false;
         }
     }

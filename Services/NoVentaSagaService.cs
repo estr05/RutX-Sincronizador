@@ -75,6 +75,12 @@ public sealed class NoVentaSagaService : INoVentaSagaService
                 continue;
             }
 
+            if (op.Status == "pending" && op.FotoFileId == null)
+            {
+                // La foto aún no se ha guardado en staging; esperar a que el cliente reenvíe la petición HTTP con la foto
+                continue;
+            }
+
             try
             {
                 var options = new JsonSerializerOptions 

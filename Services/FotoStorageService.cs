@@ -118,18 +118,21 @@ public partial class FotoStorageService : IFotoStorageService
         string sha256;
         long sizeBytes;
 
-        // Guardar y calcular SHA-256 en un solo stream
+        // Guardar archivo en staging
         await using (var fs = new FileStream(rutaStaging, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-        await using (var sha = new CryptoStream(fs, SHA256.Create(), CryptoStreamMode.Write))
         {
-            await foto.OpenReadStream().CopyToAsync(sha, ct);
-            await sha.FlushFinalBlockAsync(ct);
-            sizeBytes = fs.Length;
+            await foto.OpenReadStream().CopyToAsync(fs, ct);
         }
 
-        // Leer el hash resultante
-        using var fsr = File.OpenRead(rutaStaging);
-        sha256 = Convert.ToHexString(await SHA256.HashDataAsync(fsr, ct)).ToLowerInvariant();
+        // Calcular tamaño exacto y SHA-256 del archivo persistido
+        var fi = new FileInfo(rutaStaging);
+        sizeBytes = fi.Length;
+
+        await using (var fsr = File.OpenRead(rutaStaging))
+        {
+            var hashBytes = await SHA256.HashDataAsync(fsr, ct);
+            sha256 = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
 
         _logger.LogInformation(
             "[Saga] Foto guardada en staging: {StoredName} ({Bytes} bytes, sha256={Sha256})",

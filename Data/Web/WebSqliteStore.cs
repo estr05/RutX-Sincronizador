@@ -470,7 +470,8 @@ public sealed class WebSqliteStore : IWebSqliteStore
         sel.CommandText = """
             SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
                    fecha_hora, docto_pv_id, folio, foto_file_id,
-                   status, attempts, error_code, error_message, created_at, updated_at
+                   status, attempts, error_code, error_message, created_at, updated_at,
+                   payload_json, session_json
             FROM rutx_no_sale_operations
             WHERE venta_movil_id = $vmid
             LIMIT 1;
@@ -492,7 +493,8 @@ public sealed class WebSqliteStore : IWebSqliteStore
         cmd.CommandText = """
             SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
                    fecha_hora, docto_pv_id, folio, foto_file_id,
-                   status, attempts, error_code, error_message, created_at, updated_at
+                   status, attempts, error_code, error_message, created_at, updated_at,
+                   payload_json, session_json
             FROM rutx_no_sale_operations
             WHERE venta_movil_id = $vmid
             LIMIT 1;
@@ -524,7 +526,8 @@ public sealed class WebSqliteStore : IWebSqliteStore
             WHERE id = $id
             RETURNING id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
                       fecha_hora, docto_pv_id, folio, foto_file_id,
-                      status, attempts, error_code, error_message, created_at, updated_at;
+                      status, attempts, error_code, error_message, created_at, updated_at,
+                      payload_json, session_json;
             """;
         cmd.Parameters.AddWithValue("$id",           id);
         cmd.Parameters.AddWithValue("$status",       status);
@@ -673,7 +676,8 @@ public sealed class WebSqliteStore : IWebSqliteStore
         cmd.CommandText = """
             SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
                    fecha_hora, docto_pv_id, folio, foto_file_id,
-                   status, attempts, error_code, error_message, created_at, updated_at
+                   status, attempts, error_code, error_message, created_at, updated_at,
+                   payload_json, session_json
             FROM rutx_no_sale_operations
             WHERE status IN ('pending', 'media_staged', 'media_promotion_pending', 'retryable_failed')
               AND attempts < $maxIntentos
@@ -709,7 +713,9 @@ public sealed class WebSqliteStore : IWebSqliteStore
         r.IsDBNull(12) ? null : r.GetString(12),
         r.IsDBNull(13) ? null : r.GetString(13),
         r.GetString(14),
-        r.GetString(15));
+        r.GetString(15),
+        r.FieldCount > 16 && !r.IsDBNull(16) ? r.GetString(16) : null,
+        r.FieldCount > 17 && !r.IsDBNull(17) ? r.GetString(17) : null);
 
     private static MediaFileRow LeerMediaFile(SqliteDataReader r) => new(
         r.GetInt64(0),

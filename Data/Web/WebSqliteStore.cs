@@ -521,14 +521,10 @@ public sealed class WebSqliteStore : IWebSqliteStore
                 error_message = $errorMessage,
                 attempts      = attempts + 1,
                 updated_at    = $now
-            WHERE id = $id;
-
-            SELECT id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
-                   fecha_hora, docto_pv_id, folio, foto_file_id,
-                   status, attempts, error_code, error_message, created_at, updated_at, payload_json, session_json
-            FROM rutx_no_sale_operations
             WHERE id = $id
-            LIMIT 1;
+            RETURNING id, venta_movil_id, request_hash, vendedor_id, cliente_id, causa_id,
+                      fecha_hora, docto_pv_id, folio, foto_file_id,
+                      status, attempts, error_code, error_message, created_at, updated_at;
             """;
         cmd.Parameters.AddWithValue("$id",           id);
         cmd.Parameters.AddWithValue("$status",       status);
@@ -539,8 +535,7 @@ public sealed class WebSqliteStore : IWebSqliteStore
         cmd.Parameters.AddWithValue("$errorMessage", (object?)errorMessage ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$now",          ahora);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        // Saltar el result set del UPDATE, leer el SELECT
-        if (!await reader.NextResultAsync(ct) || !await reader.ReadAsync(ct))
+        if (!await reader.ReadAsync(ct))
             throw new InvalidOperationException($"No se encontró la operación con id={id} tras actualizar.");
         return LeerNoSaleOperation(reader);
     }

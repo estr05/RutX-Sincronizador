@@ -77,8 +77,13 @@ public sealed class NoVentaSagaService : INoVentaSagaService
 
             try
             {
-                var dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(op.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                var sesion = JsonSerializer.Deserialize<UsuarioSesion>(op.SessionJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var options = new JsonSerializerOptions 
+                { 
+                    PropertyNameCaseInsensitive = true,
+                    PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+                };
+                var dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(op.PayloadJson, options);
+                var sesion = JsonSerializer.Deserialize<UsuarioSesion>(op.SessionJson, options);
                 
                 if (dto == null || sesion == null)
                     throw new Exception("Deserialización nula");
@@ -104,7 +109,11 @@ public sealed class NoVentaSagaService : INoVentaSagaService
         NoVentaPvCreateDto? dto;
         try
         {
-            dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(form.PayloadJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            dto = JsonSerializer.Deserialize<NoVentaPvCreateDto>(form.PayloadJson, new JsonSerializerOptions 
+            { 
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+            });
             if (dto == null || string.IsNullOrWhiteSpace(dto.VentaMovilId))
                 throw new Exception("El payload no contiene venta_movil_id.");
         }

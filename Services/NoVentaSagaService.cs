@@ -241,7 +241,7 @@ public sealed class NoVentaSagaService : INoVentaSagaService
         }
 
         // ── PASO 6: Insertar en Firebird ─────────────────────────────────────
-        if (op.Status == "media_staged" || op.Status == "pending")
+        if (op.Status == "media_staged" || op.Status == "pending" || op.Status == "retryable_failed")
         {
             try
             {

@@ -177,8 +177,9 @@ public class DashboardWebService : IDashboardWebService
     /// Condiciones WHERE compartidas por resumen y serie. Las fechas siempre
     /// acotan el rango; zona y ruta son opcionales. La lista de zonas vacía
     /// (zona fuera de alcance) produce un predicado falso: cero resultados.
+    /// Internal para poder probar las reglas de negocio sin Firebird.
     /// </summary>
-    private (List<string> Condiciones, DynamicParameters Valores) ConstruirFiltroComun(
+    internal (List<string> Condiciones, DynamicParameters Valores) ConstruirFiltroComun(
         ReportFilterQuery filtros,
         IReadOnlyList<int> userZoneIds,
         (DateTime Desde, DateTime Hasta) ventana,
@@ -224,7 +225,7 @@ public class DashboardWebService : IDashboardWebService
     }
 
     /// <summary>Formas de cobro que el cliente considera crédito; sin config, ninguna (-1).</summary>
-    private int[] LeerFormasCredito()
+    internal int[] LeerFormasCredito()
     {
         var formas = _configuration.GetSection("MicrosipSettings:CreditFormaCobroIds").Get<int[]>();
         return formas is { Length: > 0 } ? formas : new[] { -1 };
@@ -234,13 +235,13 @@ public class DashboardWebService : IDashboardWebService
         => _configuration.GetConnectionString("FirebirdConnection")
            ?? throw new InvalidOperationException("FirebirdConnection no configurada.");
 
-    private static string NormalizarRango(string? rango)
+    internal static string NormalizarRango(string? rango)
         => rango?.Trim().ToLowerInvariant() is "semanal" or "mensual"
             ? rango.Trim().ToLowerInvariant()
             : "diario";
 
     /// <summary>Ventana del resumen: por defecto el día en curso según el rango pedido.</summary>
-    private static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
     {
         var explicita = VentanaExplicita(filtros);
         if (explicita.HasValue)
@@ -256,7 +257,7 @@ public class DashboardWebService : IDashboardWebService
     }
 
     /// <summary>Ventana de la serie: 14 días, 8 semanas o 12 meses hacia atrás.</summary>
-    private static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango)
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango)
     {
         var explicita = VentanaExplicita(filtros);
         if (explicita.HasValue)
@@ -278,7 +279,7 @@ public class DashboardWebService : IDashboardWebService
         return desde.HasValue && hasta.HasValue ? (desde.Value, hasta.Value) : null;
     }
 
-    private static DateTime? ParsearFecha(string? fecha)
+    internal static DateTime? ParsearFecha(string? fecha)
         => DateTime.TryParseExact(
                fecha,
                "yyyy-MM-dd",
@@ -288,7 +289,7 @@ public class DashboardWebService : IDashboardWebService
             ? valor
             : null;
 
-    private static DateTime LunesDe(DateTime fecha)
+    internal static DateTime LunesDe(DateTime fecha)
     {
         // EXTRACT(WEEKDAY) en Firebird cuenta domingo=0; aquí anclamos a lunes.
         var desplazamiento = ((int)fecha.DayOfWeek + 6) % 7;

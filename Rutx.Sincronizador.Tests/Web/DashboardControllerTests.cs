@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -62,5 +64,36 @@ public class DashboardControllerTests
         Assert.Contains("message", envelope.Keys);
         Assert.Contains("trace_id", envelope.Keys);
         Assert.DoesNotContain("detalle interno", envelope.Values.Select(v => v?.ToString()));
+    }
+
+    [Fact]
+    public async Task GetDashboard_PasaLasZonasDelUsuarioAlServicio()
+    {
+        IReadOnlyList<int>? zonasRecibidas = null;
+        var service = new Mock<IDashboardWebService>();
+        service
+            .Setup(s => s.ObtenerResumenAsync(
+                It.IsAny<ReportFilterQuery>(), It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()))
+            .Callback<ReportFilterQuery, IReadOnlyList<int>, CancellationToken>((_, zonas, _) => zonasRecibidas = zonas)
+            .ReturnsAsync(new DashboardSummaryResponse());
+
+        var controller = new DashboardController(service.Object, NullLogger<DashboardController>.Instance)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+                    {
+                        new Claim("zone_ids", "3792"),
+                        new Claim("zone_ids", "3793"),
+                    }, "test")),
+                },
+            },
+        };
+
+        await controller.GetDashboard(new ReportFilterQuery(), CancellationToken.None);
+
+        Assert.Equal(new[] { 3792, 3793 }, zonasRecibidas);
     }
 }

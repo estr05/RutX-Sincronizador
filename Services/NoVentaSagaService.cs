@@ -134,6 +134,14 @@ public sealed class NoVentaSagaService : INoVentaSagaService
                     $"La foto excede el tamaño máximo permitido ({TamañoMaximoFoto / 1024 / 1024} MB).");
 
             fotoMime = foto.ContentType?.ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(fotoMime) || fotoMime == "application/octet-stream")
+            {
+                var fileExt = Path.GetExtension(foto.FileName)?.TrimStart('.').ToLowerInvariant();
+                if (fileExt == "jpg" || fileExt == "jpeg") fotoMime = "image/jpeg";
+                else if (fileExt == "png") fotoMime = "image/png";
+                else if (fileExt == "webp") fotoMime = "image/webp";
+            }
+
             if (string.IsNullOrWhiteSpace(fotoMime) || !MimesPermitidos.Contains(fotoMime))
                 throw new ArgumentException($"Tipo MIME '{fotoMime}' no permitido. Use image/jpeg, image/png o image/webp.");
 

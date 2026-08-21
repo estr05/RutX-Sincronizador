@@ -20,5 +20,6 @@ public class NoVentaPvFormDto
     public string PayloadJson { get; set; } = string.Empty;
 
     /// <summary>Archivo de la fotografia (campo `foto` del multipart).</summary>
+    [FromForm(Name = "foto")]
     public IFormFile? Foto { get; set; }
 }

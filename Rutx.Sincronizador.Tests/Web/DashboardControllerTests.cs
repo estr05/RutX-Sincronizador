@@ -20,7 +20,8 @@ public class DashboardControllerTests
     {
         var service = new Mock<IDashboardWebService>();
         service
-            .Setup(s => s.ObtenerResumenAsync(It.IsAny<ReportFilterQuery>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.ObtenerResumenAsync(
+                It.IsAny<ReportFilterQuery>(), It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DashboardSummaryResponse
             {
                 Kpi = { new DashboardKpiDto { Label = "Venta total", Value = 1500m, Status = "ok" } },
@@ -36,7 +37,9 @@ public class DashboardControllerTests
         Assert.Contains("data", envelope.Keys);
         Assert.Contains("trace_id", envelope.Keys);
         Assert.NotNull(envelope["trace_id"]);
-        service.Verify(s => s.ObtenerResumenAsync(It.IsAny<ReportFilterQuery>(), It.IsAny<CancellationToken>()), Times.Once);
+        service.Verify(
+            s => s.ObtenerResumenAsync(It.IsAny<ReportFilterQuery>(), It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Fact]
@@ -44,7 +47,8 @@ public class DashboardControllerTests
     {
         var service = new Mock<IDashboardWebService>();
         service
-            .Setup(s => s.ObtenerResumenAsync(It.IsAny<ReportFilterQuery>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.ObtenerResumenAsync(
+                It.IsAny<ReportFilterQuery>(), It.IsAny<IReadOnlyList<int>>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("detalle interno de BD"));
 
         var controller = new DashboardController(service.Object, NullLogger<DashboardController>.Instance);

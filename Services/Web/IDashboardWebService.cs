@@ -9,8 +9,14 @@ namespace Rutx.Sincronizador.Services.Web;
 public interface IDashboardWebService
 {
     /// <summary>GET /api/v2/web/dashboard → DashboardSummaryResponse (7 KPIs + meta).</summary>
-    Task<DashboardSummaryResponse> ObtenerResumenAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+    Task<DashboardSummaryResponse> ObtenerResumenAsync(
+        ReportFilterQuery filtros,
+        IReadOnlyList<int> userZoneIds,
+        CancellationToken ct = default);
 
     /// <summary>GET /api/v2/web/dashboard/sales-series → SalesSeriesResponse.</summary>
-    Task<SalesSeriesResponse> ObtenerSerieVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+    Task<SalesSeriesResponse> ObtenerSerieVentasAsync(
+        ReportFilterQuery filtros,
+        IReadOnlyList<int> userZoneIds,
+        CancellationToken ct = default);
 }

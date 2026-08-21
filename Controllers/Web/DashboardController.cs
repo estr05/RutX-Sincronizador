@@ -32,7 +32,7 @@ public class DashboardController : ControllerBase
     {
         try
         {
-            var data = await _dashboardWebService.ObtenerResumenAsync(filtros, ct);
+            var data = await _dashboardWebService.ObtenerResumenAsync(filtros, WebClaims.Zonas(User), ct);
             return Ok(WebEnvelope.Success(HttpContext, data, meta: new { last_sync_at = data.Meta.LastSyncAt, currency = data.Meta.Currency }, filters: filtros));
         }
         catch (Exception ex)
@@ -50,7 +50,7 @@ public class DashboardController : ControllerBase
     {
         try
         {
-            var data = await _dashboardWebService.ObtenerSerieVentasAsync(filtros, ct);
+            var data = await _dashboardWebService.ObtenerSerieVentasAsync(filtros, WebClaims.Zonas(User), ct);
             return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)

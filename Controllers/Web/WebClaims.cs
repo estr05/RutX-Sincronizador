@@ -8,11 +8,11 @@ namespace Rutx.Sincronizador.Controllers.Web;
 /// </summary>
 public static class WebClaims
 {
-    public static IReadOnlyList<int> Zonas(ClaimsPrincipal principal)
-        => principal.FindAll("zone_ids")
+    public static IReadOnlyList<int> Zonas(ClaimsPrincipal? principal)
+        => principal?.FindAll("zone_ids")
             .Select(c => int.TryParse(c.Value, out var z) ? z : -1)
             .Where(z => z >= 0)
-            .ToArray();
+            .ToArray() ?? Array.Empty<int>();
 
     public static long? UserId(ClaimsPrincipal principal)
         => long.TryParse(principal.FindFirst("user_id")?.Value, out var id) ? id : null;

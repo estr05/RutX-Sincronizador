@@ -478,4 +478,41 @@ public static class InstalacionHelper
             Console.WriteLine($"[AVISO] No se pudieron restringir ACLs de appsettings.json: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Crea un acceso directo (.lnk) en el Escritorio del usuario apuntando al exe indicado.
+    /// Usa WScript.Shell via COM interop (disponible en todas las versiones de Windows).
+    /// </summary>
+    public static void CrearAccesoDirectoEscritorio(string rutaExe, string nombreCorto = "RUTX Sincronizador")
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        try
+        {
+            var escritorio = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            var rutaLnk = Path.Combine(escritorio, nombreCorto + ".lnk");
+
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return;
+
+            var shell = Activator.CreateInstance(shellType);
+            if (shell == null) return;
+
+            object? shortcut = shell.GetType().InvokeMember(
+                "CreateShortcut",
+                System.Reflection.BindingFlags.InvokeMethod,
+                null, shell, new object[] { rutaLnk });
+
+            if (shortcut == null) return;
+
+            shortcut.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { rutaExe });
+            shortcut.GetType().InvokeMember("WorkingDirectory", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { Path.GetDirectoryName(rutaExe) ?? "" });
+            shortcut.GetType().InvokeMember("Description", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { "Panel de administración del Sincronizador RUTX" });
+            shortcut.GetType().InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
+        }
+        catch
+        {
+            // Si falla (COM no disponible, permisos), no es crítico.
+        }
+    }
 }

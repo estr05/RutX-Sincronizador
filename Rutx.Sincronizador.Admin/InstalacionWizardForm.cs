@@ -548,7 +548,7 @@ public class InstalacionWizardForm : Form
             Font = new Font("Figtree", 10F, FontStyle.Regular),
             ForeColor = TextoMuted,
             Text = "Para terminar:\n"
-                 + "  1. En la ventana principal presiona ▶ Iniciar (arranca la API en :5047).\n"
+                 + "  1. Usa el acceso directo \"RUTX Sincronizador\" en tu Escritorio (o presiona ▶ Iniciar).\n"
                  + "  2. Abre el panel web con ⚙ Conf (web) para ajustar IDs o ver la auditoría\n"
                  + "     con los puntitos de estado (🔴 configurar · 🟡 revisar · 🟢 ok)."
         });
@@ -795,6 +795,17 @@ public class InstalacionWizardForm : Form
             File.WriteAllText(rutaMarcador, JsonSerializer.Serialize(infoGenerada, new JsonSerializerOptions { WriteIndented = true }));
             Log("Marcador de instalación creado exitosamente.", "inf");
 
+            // Crear acceso directo en el Escritorio
+            try
+            {
+                InstalacionHelper.CrearAccesoDirectoEscritorio(infoGenerada.ExeAdmin);
+                Log("Acceso directo creado en el Escritorio: \"RUTX Sincronizador\".", "inf");
+            }
+            catch (Exception ex)
+            {
+                Log("No se pudo crear el acceso directo: " + ex.Message, "warn");
+            }
+
             _instalado = true;
             _onInstalada?.Invoke(infoGenerada.ExeSync, infoGenerada.Raiz);
 
@@ -933,6 +944,7 @@ public class InstalacionWizardForm : Form
         sb.AppendLine(_auditoriaOk
             ? $"Resultado de la auditoría :  🔴 {_nFallos} faltantes   🟡 {_nAvisos} avisos   🟢 {_nOk} ok"
             : "Auditoría : pendiente (ejecútala desde el panel web)");
+        sb.AppendLine("Acceso directo    : \"RUTX Sincronizador\" en el Escritorio");
         return sb.ToString();
     }
 

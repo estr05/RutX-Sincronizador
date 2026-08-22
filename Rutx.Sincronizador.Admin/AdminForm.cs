@@ -69,7 +69,7 @@ public class AdminForm : Form
         {
             Text = "RUTX Sincronizador",
             Visible = false,
-            Icon = SystemIcons.Application
+            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application
         };
         var menuTray = new ContextMenuStrip();
         menuTray.Items.Add("Abrir", null, (_, _) => MostrarVentana());
@@ -99,7 +99,13 @@ public class AdminForm : Form
         _btnIniciar.Click += async (_, _) => await IniciarSyncAsync();
 
         _btnDetener = CrearBoton("⏹  Detener", Rojo, Color.White);
-        _btnDetener.Click += (_, _) => _sync.Detener();
+        _btnDetener.Click += async (_, _) =>
+        {
+            if (_servicioInstalado && ServiceHelper.EstaCorriendo())
+                await EjecutarAccionServicioAsync("detener");
+            else
+                _sync.Detener();
+        };
         _btnDetener.Enabled = false;
 
         _btnConfWeb = CrearBoton("⚙  Conf (web)", Naranja, AzulMarino);

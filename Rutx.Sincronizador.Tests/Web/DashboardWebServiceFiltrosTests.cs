@@ -1,4 +1,4 @@
-﻿using System.Collections.Specialized;
+using System.Collections.Specialized;
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -210,7 +210,7 @@ public class DashboardWebServiceFiltrosTests
     public void VentanaSerie_Diario_YaSemanal_AcotaSegunRango()
     {
         var diario = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "diario");
-        Assert.Equal(Hoy.AddDays(-13), diario.Desde);
+        Assert.Equal(Hoy, diario.Desde);
 
         var semanal = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal");
         Assert.Equal(Hoy.AddDays(-55), semanal.Desde);

@@ -292,7 +292,7 @@ public class DashboardWebService : IDashboardWebService
         {
             "mensual" => (new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-11), hoy),
             "semanal" => (hoy.AddDays(-55), hoy),
-            _ => (hoy.AddDays(-13), hoy),
+            _ => (hoy, hoy),
         };
     }
 

@@ -111,8 +111,9 @@ public class DashboardWebService : IDashboardWebService
         var (condiciones, valores) = ConstruirFiltroComun(filtros, userZoneIds, ventana, incluirFormasCredito: false);
         var where = string.Join(" AND ", condiciones);
 
-        var sql = rango == "mensual"
-            ? $"""
+        var sql = rango switch
+        {
+            "mensual" => $"""
                SELECT CAST(EXTRACT(YEAR FROM CAST(pv.FECHA AS DATE)) AS INTEGER) AS Anio,
                       CAST(EXTRACT(MONTH FROM CAST(pv.FECHA AS DATE)) AS INTEGER) AS Mes,
                       COALESCE(SUM(CASE WHEN {CondicionVenta}
@@ -121,8 +122,18 @@ public class DashboardWebService : IDashboardWebService
                WHERE {where}
                GROUP BY 1, 2
                ORDER BY 1, 2
-               """
-            : $"""
+               """,
+            "diario" => $"""
+               SELECT CAST(pv.FECHA AS DATE) AS Dia,
+                      CAST(EXTRACT(HOUR FROM pv.HORA) AS INTEGER) AS Hora,
+                      COALESCE(SUM(CASE WHEN {CondicionVenta}
+                          THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Monto
+               FROM DOCTOS_PV pv
+               WHERE {where}
+               GROUP BY 1, 2
+               ORDER BY 1, 2
+               """,
+            _ => $"""
                SELECT CAST(pv.FECHA AS DATE) AS Dia,
                       COALESCE(SUM(CASE WHEN {CondicionVenta}
                           THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Monto
@@ -130,7 +141,8 @@ public class DashboardWebService : IDashboardWebService
                WHERE {where}
                GROUP BY 1
                ORDER BY 1
-               """;
+               """
+        };
 
         try
         {
@@ -145,6 +157,17 @@ public class DashboardWebService : IDashboardWebService
                     response.Series.Add(new SalesPointDto
                     {
                         Period = $"{f.Anio:D4}-{f.Mes:D2}",
+                        Amount = f.Monto,
+                    });
+            }
+            else if (rango == "diario")
+            {
+                var filas = await conn.QueryAsync<SeriePorHoraRow>(
+                    new CommandDefinition(sql, valores, cancellationToken: ct));
+                foreach (var f in filas)
+                    response.Series.Add(new SalesPointDto
+                    {
+                        Period = $"{f.Dia:yyyy-MM-dd} {f.Hora:D2}:00",
                         Amount = f.Monto,
                     });
             }
@@ -309,6 +332,13 @@ public class DashboardWebService : IDashboardWebService
     private sealed class SerieRow
     {
         public DateTime Dia { get; set; }
+        public decimal Monto { get; set; }
+    }
+
+    private sealed class SeriePorHoraRow
+    {
+        public DateTime Dia { get; set; }
+        public int Hora { get; set; }
         public decimal Monto { get; set; }
     }
 

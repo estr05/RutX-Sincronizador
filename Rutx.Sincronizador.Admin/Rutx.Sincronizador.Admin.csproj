@@ -8,6 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>Rutx.Sincronizador.Admin</RootNamespace>
     <AssemblyName>Rutx.Sincronizador.Admin</AssemblyName>
+    <ApplicationIcon>Assets\rutx-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

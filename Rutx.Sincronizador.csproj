@@ -4,7 +4,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <NoWarn>$(NoWarn);NU1903</NoWarn>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Rutx.Sincronizador.Tests\**;Rutx.Sincronizador.Admin\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Rutx.Sincronizador.Tests\**;Rutx.Sincronizador.Admin\**;test_db.cs</DefaultItemExcludes>
+    <ApplicationIcon>Rutx.Sincronizador\Assets\rutx-icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <!-- Copiar wwwroot (panel web /admin) al output: el launcher arranca el sync

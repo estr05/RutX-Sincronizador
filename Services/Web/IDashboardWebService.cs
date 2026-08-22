@@ -19,4 +19,10 @@ public interface IDashboardWebService
         ReportFilterQuery filtros,
         IReadOnlyList<int> userZoneIds,
         CancellationToken ct = default);
+
+    (System.Collections.Generic.List<string> Condiciones, Dapper.DynamicParameters Valores) ConstruirFiltroComun(
+        ReportFilterQuery filtros,
+        IReadOnlyList<int> userZoneIds,
+        (DateTime Desde, DateTime Hasta) ventana,
+        bool incluirFormasCredito);
 }

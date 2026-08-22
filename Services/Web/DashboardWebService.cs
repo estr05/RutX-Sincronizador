@@ -25,10 +25,10 @@ namespace Rutx.Sincronizador.Services.Web;
 /// </summary>
 public class DashboardWebService : IDashboardWebService
 {
-    private const string CondicionVenta =
+    public const string CondicionVenta =
         "pv.TIPO_DOCTO = 'V' AND pv.ESTATUS = 'N' AND (pv.DESCRIPCION IS NULL OR pv.DESCRIPCION NOT LIKE 'NO VENTA:%')";
 
-    private const string CondicionNoVenta =
+    internal const string CondicionNoVenta =
         "pv.TIPO_DOCTO = 'V' AND pv.ESTATUS = 'N' AND pv.DESCRIPCION LIKE 'NO VENTA:%'";
 
     private readonly IConfiguration _configuration;
@@ -179,7 +179,7 @@ public class DashboardWebService : IDashboardWebService
     /// (zona fuera de alcance) produce un predicado falso: cero resultados.
     /// Internal para poder probar las reglas de negocio sin Firebird.
     /// </summary>
-    internal (List<string> Condiciones, DynamicParameters Valores) ConstruirFiltroComun(
+    public (List<string> Condiciones, DynamicParameters Valores) ConstruirFiltroComun(
         ReportFilterQuery filtros,
         IReadOnlyList<int> userZoneIds,
         (DateTime Desde, DateTime Hasta) ventana,
@@ -241,7 +241,7 @@ public class DashboardWebService : IDashboardWebService
             : "diario";
 
     /// <summary>Ventana del resumen: por defecto el día en curso según el rango pedido.</summary>
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
+    public static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
     {
         var explicita = VentanaExplicita(filtros);
         if (explicita.HasValue)

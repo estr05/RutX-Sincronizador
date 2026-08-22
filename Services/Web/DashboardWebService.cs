@@ -164,10 +164,11 @@ public class DashboardWebService : IDashboardWebService
             {
                 var filas = await conn.QueryAsync<SeriePorHoraRow>(
                     new CommandDefinition(sql, valores, cancellationToken: ct));
+                var mismoDia = ventana.Desde.Date == ventana.Hasta.Date;
                 foreach (var f in filas)
                     response.Series.Add(new SalesPointDto
                     {
-                        Period = $"{f.Dia:yyyy-MM-dd} {f.Hora:D2}:00",
+                        Period = mismoDia ? $"{f.Hora:D2}:00" : $"{f.Dia:yyyy-MM-dd} {f.Hora:D2}:00",
                         Amount = f.Monto,
                     });
             }

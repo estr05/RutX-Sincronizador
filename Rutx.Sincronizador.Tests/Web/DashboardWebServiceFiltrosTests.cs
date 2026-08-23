@@ -1,4 +1,4 @@
-﻿using System.Collections.Specialized;
+using System.Collections.Specialized;
 using System.Globalization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -207,13 +207,19 @@ public class DashboardWebServiceFiltrosTests
     }
 
     [Fact]
-    public void VentanaSerie_Diario_YaSemanal_AcotaSegunRango()
+    public void VentanaSerie_Diario_SinFechas_MuestraSoloDiaActual()
     {
-        var diario = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "diario");
-        Assert.Equal(Hoy.AddDays(-13), diario.Desde);
+        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "diario");
+        Assert.Equal(Hoy, ventana.Desde);
+        Assert.Equal(Hoy, ventana.Hasta);
+    }
 
-        var semanal = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal");
-        Assert.Equal(Hoy.AddDays(-55), semanal.Desde);
+    [Fact]
+    public void VentanaSerie_Semanal_SinFechas_Ultimos7DiasDesdeHoy()
+    {
+        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal");
+        Assert.Equal(Hoy.AddDays(-6), ventana.Desde);  // HOY-6 a HOY inclusive = 7 días
+        Assert.Equal(Hoy, ventana.Hasta);
     }
 
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

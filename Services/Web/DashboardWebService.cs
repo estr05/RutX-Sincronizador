@@ -25,11 +25,7 @@ namespace Rutx.Sincronizador.Services.Web;
 /// </summary>
 public class DashboardWebService : IDashboardWebService
 {
-    private const string CondicionVenta =
-        "pv.TIPO_DOCTO = 'V' AND pv.ESTATUS = 'N' AND (pv.DESCRIPCION IS NULL OR pv.DESCRIPCION NOT LIKE 'NO VENTA:%')";
 
-    private const string CondicionNoVenta =
-        "pv.TIPO_DOCTO = 'V' AND pv.ESTATUS = 'N' AND pv.DESCRIPCION LIKE 'NO VENTA:%'";
 
     private readonly IConfiguration _configuration;
     private readonly ILogger<DashboardWebService> _logger;
@@ -55,16 +51,16 @@ public class DashboardWebService : IDashboardWebService
 
         var sql = $"""
             SELECT
-                COALESCE(SUM(CASE WHEN {CondicionVenta}
+                COALESCE(SUM(CASE WHEN {VentaQueryConstants.CondicionVenta}
                     THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS VentaTotal,
-                COALESCE(SUM(CASE WHEN {CondicionVenta}
+                COALESCE(SUM(CASE WHEN {VentaQueryConstants.CondicionVenta}
                     AND EXISTS (SELECT 1 FROM DOCTOS_PV_COBROS cb
                                 WHERE cb.DOCTO_PV_ID = pv.DOCTO_PV_ID
                                   AND cb.FORMA_COBRO_ID IN @formasCredito)
                     THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS VentaCredito,
                 COALESCE(SUM(CASE WHEN pv.TIPO_DOCTO = 'P' AND pv.ESTATUS = 'N'
                     THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Cobranza,
-                COUNT(CASE WHEN {CondicionNoVenta} THEN 1 END) AS NoVentas
+                COUNT(CASE WHEN {VentaQueryConstants.CondicionNoVenta} THEN 1 END) AS NoVentas
             FROM DOCTOS_PV pv
             WHERE {where}
             """;
@@ -116,7 +112,7 @@ public class DashboardWebService : IDashboardWebService
             "mensual" => $"""
                SELECT CAST(EXTRACT(YEAR FROM CAST(pv.FECHA AS DATE)) AS INTEGER) AS Anio,
                       CAST(EXTRACT(MONTH FROM CAST(pv.FECHA AS DATE)) AS INTEGER) AS Mes,
-                      COALESCE(SUM(CASE WHEN {CondicionVenta}
+                      COALESCE(SUM(CASE WHEN {VentaQueryConstants.CondicionVenta}
                           THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Monto
                FROM DOCTOS_PV pv
                WHERE {where}
@@ -126,22 +122,23 @@ public class DashboardWebService : IDashboardWebService
             "diario" => $"""
                SELECT CAST(pv.FECHA AS DATE) AS Dia,
                       CAST(EXTRACT(HOUR FROM pv.HORA) AS INTEGER) AS Hora,
-                      COALESCE(SUM(CASE WHEN {CondicionVenta}
+                      COALESCE(SUM(CASE WHEN {VentaQueryConstants.CondicionVenta}
                           THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Monto
                FROM DOCTOS_PV pv
                WHERE {where}
                GROUP BY 1, 2
                ORDER BY 1, 2
                """,
-            _ => $"""
+            "semanal" => $"""
                SELECT CAST(pv.FECHA AS DATE) AS Dia,
-                      COALESCE(SUM(CASE WHEN {CondicionVenta}
+                      COALESCE(SUM(CASE WHEN {VentaQueryConstants.CondicionVenta}
                           THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS Monto
                FROM DOCTOS_PV pv
                WHERE {where}
                GROUP BY 1
                ORDER BY 1
-               """
+               """,
+            _ => throw new InvalidOperationException($"Rango '{rango}' no manejado.")
         };
 
         try
@@ -153,34 +150,52 @@ public class DashboardWebService : IDashboardWebService
             {
                 var filas = await conn.QueryAsync<SerieMensualRow>(
                     new CommandDefinition(sql, valores, cancellationToken: ct));
-                foreach (var f in filas)
-                    response.Series.Add(new SalesPointDto
-                    {
-                        Period = $"{f.Anio:D4}-{f.Mes:D2}",
-                        Amount = f.Monto,
-                    });
+                var dict = filas.ToDictionary(f => $"{f.Anio:D4}-{f.Mes:D2}", f => f.Monto);
+                var actual = ventana.Desde.Date;
+                var fin = ventana.Hasta.Date;
+                while (actual <= fin)
+                {
+                    var p = $"{actual:yyyy-MM}";
+                    if (!response.Series.Any(s => s.Period == p))
+                        response.Series.Add(new SalesPointDto { Period = p, Amount = dict.GetValueOrDefault(p, 0m) });
+                    actual = actual.AddMonths(1);
+                }
             }
             else if (rango == "diario")
             {
                 var filas = await conn.QueryAsync<SeriePorHoraRow>(
                     new CommandDefinition(sql, valores, cancellationToken: ct));
-                foreach (var f in filas)
-                    response.Series.Add(new SalesPointDto
+                var dict = filas.ToDictionary(f => $"{f.Dia:yyyy-MM-dd} {f.Hora:D2}:00", f => f.Monto);
+                var actual = ventana.Desde.Date;
+                var fin = ventana.Hasta.Date;
+                while (actual <= fin)
+                {
+                    for (int h = 0; h < 24; h++)
                     {
-                        Period = $"{f.Dia:yyyy-MM-dd} {f.Hora:D2}:00",
-                        Amount = f.Monto,
-                    });
+                        var p = $"{actual:yyyy-MM-dd} {h:D2}:00";
+                        response.Series.Add(new SalesPointDto { Period = p, Amount = dict.GetValueOrDefault(p, 0m) });
+                    }
+                    actual = actual.AddDays(1);
+                }
             }
-            else
+            else if (rango == "semanal")
             {
                 var filas = await conn.QueryAsync<SerieRow>(
                     new CommandDefinition(sql, valores, cancellationToken: ct));
-                foreach (var f in filas)
-                    response.Series.Add(new SalesPointDto
-                    {
-                        Period = f.Dia.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                        Amount = f.Monto,
-                    });
+                var dict = filas.ToDictionary(f => f.Dia.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), f => f.Monto);
+                var actual = ventana.Desde.Date;
+                var fin = ventana.Hasta.Date;
+                while (actual <= fin)
+                {
+                    var p = actual.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                    response.Series.Add(new SalesPointDto { Period = p, Amount = dict.GetValueOrDefault(p, 0m) });
+                    actual = actual.AddDays(1);
+                }
+            }
+            else
+            {
+                // Fallback inalcanzable (el switch arriba tira excepción si escapa a los 3 conocidos)
+                throw new InvalidOperationException($"Rango '{rango}' no soportado en materialización.");
             }
 
             return response;
@@ -248,76 +263,29 @@ public class DashboardWebService : IDashboardWebService
     }
 
     /// <summary>Formas de cobro que el cliente considera crédito; sin config, ninguna (-1).</summary>
-    internal int[] LeerFormasCredito()
-    {
-        var formas = _configuration.GetSection("MicrosipSettings:CreditFormaCobroIds").Get<int[]>();
-        return formas is { Length: > 0 } ? formas : new[] { -1 };
-    }
+    internal int[] LeerFormasCredito() => VentaQueryConstants.LeerFormasCredito(_configuration);
 
     private string ResolveConnectionString()
         => _configuration.GetConnectionString("FirebirdConnection")
            ?? throw new InvalidOperationException("FirebirdConnection no configurada.");
 
-    internal static string NormalizarRango(string? rango)
-        => rango?.Trim().ToLowerInvariant() is "semanal" or "mensual"
-            ? rango.Trim().ToLowerInvariant()
-            : "diario";
+    // =========================================================================
+    // WRAPPERS DE COMPATIBILIDAD
+    // Delegan a VentaQueryConstants para no romper los tests existentes que 
+    // actualmente llaman a estos métodos desde DashboardWebService.
+    // =========================================================================
 
-    /// <summary>Ventana del resumen: por defecto el día en curso según el rango pedido.</summary>
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
-    {
-        var explicita = VentanaExplicita(filtros);
-        if (explicita.HasValue)
-            return explicita.Value;
+    internal static string NormalizarRango(string? rango) => VentaQueryConstants.NormalizarRango(rango);
 
-        var hoy = DateTime.Today;
-        return NormalizarRango(filtros.Range) switch
-        {
-            "semanal" => (LunesDe(hoy), hoy),
-            "mensual" => (new DateTime(hoy.Year, hoy.Month, 1), hoy),
-            _ => (hoy, hoy),
-        };
-    }
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros) 
+        => VentaQueryConstants.ResolverVentanaResumen(filtros);
 
-    /// <summary>Ventana de la serie: 14 días, 8 semanas o 12 meses hacia atrás.</summary>
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango)
-    {
-        var explicita = VentanaExplicita(filtros);
-        if (explicita.HasValue)
-            return explicita.Value;
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango) 
+        => VentaQueryConstants.ResolverVentanaSerie(filtros, rango);
 
-        var hoy = DateTime.Today;
-        return rango switch
-        {
-            "mensual" => (new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-11), hoy),
-            "semanal" => (hoy.AddDays(-55), hoy),
-            _ => (hoy.AddDays(-13), hoy),
-        };
-    }
+    internal static DateTime? ParsearFecha(string? fecha) => VentaQueryConstants.ParsearFecha(fecha);
 
-    private static (DateTime, DateTime)? VentanaExplicita(ReportFilterQuery filtros)
-    {
-        var desde = ParsearFecha(filtros.DateFrom);
-        var hasta = ParsearFecha(filtros.DateTo);
-        return desde.HasValue && hasta.HasValue ? (desde.Value, hasta.Value) : null;
-    }
-
-    internal static DateTime? ParsearFecha(string? fecha)
-        => DateTime.TryParseExact(
-               fecha,
-               "yyyy-MM-dd",
-               CultureInfo.InvariantCulture,
-               DateTimeStyles.None,
-               out var valor)
-            ? valor
-            : null;
-
-    internal static DateTime LunesDe(DateTime fecha)
-    {
-        // EXTRACT(WEEKDAY) en Firebird cuenta domingo=0; aquí anclamos a lunes.
-        var desplazamiento = ((int)fecha.DayOfWeek + 6) % 7;
-        return fecha.AddDays(-desplazamiento);
-    }
+    internal static DateTime LunesDe(DateTime fecha) => VentaQueryConstants.LunesDe(fecha);
 
     /// <summary>Fila del agregado de KPIs.</summary>
     private sealed class KpiRow

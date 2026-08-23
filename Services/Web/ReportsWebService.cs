@@ -23,19 +23,100 @@ public class ReportsWebService : IReportsWebService
             ?? throw new InvalidOperationException("FirebirdConnection no configurada.");
     }
 
-    public Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default)
+    public async Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default)
     {
         if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
             throw new FeatureNotReadyException("Reports");
 
-        // TODO(web): agregados de ventas, piezas y montos por ruta con Dapper parametrizado.
-        _logger.LogInformation("Reporte de ventas solicitado (range={Range})", filtros.Range);
+        var ventana = VentaQueryConstants.ResolverVentanaResumen(filtros);
+        var formasCredito = VentaQueryConstants.LeerFormasCredito(_configuration);
 
-        return Task.FromResult(new SalesReportResponse
+        var valores = new Dapper.DynamicParameters();
+        valores.Add("@desde", ventana.Desde.Date);
+        valores.Add("@hasta", ventana.Hasta.Date);
+        valores.Add("@formasCredito", formasCredito);
+
+        var condicionesExtra = new System.Collections.Generic.List<string>
         {
-            Totals = new SalesTotalsDto { Currency = "MXN" },
-            Status = "unknown",
-        });
+            "pv.FECHA >= @desde",
+            "pv.FECHA <= @hasta",
+        };
+
+        if (filtros.RouteId is int ruta)
+        {
+            condicionesExtra.Add("pv.VENDEDOR_ID = @ruta");
+            valores.Add("@ruta", ruta);
+        }
+
+        var where = string.Join(" AND ", condicionesExtra);
+        var condVenta = VentaQueryConstants.CondicionVenta;
+
+        var sql = $"""
+            SELECT
+                COALESCE(v.NOMBRE, 'Venta de Mostrador') AS RouteName,
+                CAST(COUNT(CASE WHEN {condVenta} THEN 1 END) AS INTEGER) AS Pieces,
+                COALESCE(SUM(CASE WHEN {condVenta}
+                    AND NOT EXISTS (SELECT 1 FROM DOCTOS_PV_COBROS cb
+                        WHERE cb.DOCTO_PV_ID = pv.DOCTO_PV_ID
+                          AND cb.FORMA_COBRO_ID IN @formasCredito)
+                    THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS CashAmount,
+                COALESCE(SUM(CASE WHEN {condVenta}
+                    AND EXISTS (SELECT 1 FROM DOCTOS_PV_COBROS cb
+                        WHERE cb.DOCTO_PV_ID = pv.DOCTO_PV_ID
+                          AND cb.FORMA_COBRO_ID IN @formasCredito)
+                    THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS CreditAmount,
+                COALESCE(SUM(CASE WHEN {condVenta}
+                    THEN pv.IMPORTE_NETO + pv.TOTAL_IMPUESTOS END), 0) AS TotalAmount
+            FROM DOCTOS_PV pv
+            LEFT JOIN VENDEDORES v ON v.VENDEDOR_ID = pv.VENDEDOR_ID
+            WHERE {where}
+            GROUP BY COALESCE(v.NOMBRE, 'Venta de Mostrador')
+            ORDER BY TotalAmount DESC
+            """;
+
+        try
+        {
+            await using var conn = new FirebirdSql.Data.FirebirdClient.FbConnection(_connectionString);
+            var filas = (await Dapper.SqlMapper.QueryAsync<RouteAggregateRow>(conn, 
+                new Dapper.CommandDefinition(sql, valores, cancellationToken: ct))).ToList();
+
+            var byRoute = filas.ConvertAll(f => new RouteSalesAggregateDto
+            {
+                RouteName  = f.RouteName,
+                Pieces     = f.Pieces,
+                CashAmount = f.CashAmount,
+                CreditAmount = f.CreditAmount,
+                TotalAmount  = f.TotalAmount,
+            });
+
+            return new SalesReportResponse
+            {
+                ByRoute = byRoute,
+                Totals  = new SalesTotalsDto
+                {
+                    SalesAmount = byRoute.Sum(r => r.TotalAmount),
+                    Pieces      = byRoute.Sum(r => r.Pieces),
+                    Currency    = "MXN",
+                },
+                Status = "ok",
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "Error al consultar reporte de ventas por ruta (desde={Desde}, hasta={Hasta})",
+                ventana.Desde, ventana.Hasta);
+            throw;
+        }
+    }
+
+    private sealed class RouteAggregateRow
+    {
+        public string RouteName { get; set; } = string.Empty;
+        public int Pieces { get; set; }
+        public decimal CashAmount { get; set; }
+        public decimal CreditAmount { get; set; }
+        public decimal TotalAmount { get; set; }
     }
 
     public Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, CancellationToken ct = default)

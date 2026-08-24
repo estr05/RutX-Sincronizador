@@ -23,7 +23,7 @@ public class ReportsWebService : IReportsWebService
             ?? throw new InvalidOperationException("FirebirdConnection no configurada.");
     }
 
-    public async Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default)
+    public async Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default)
     {
         if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
             throw new FeatureNotReadyException("Reports");
@@ -31,29 +31,21 @@ public class ReportsWebService : IReportsWebService
         var ventana = VentaQueryConstants.ResolverVentanaResumen(filtros);
         var formasCredito = VentaQueryConstants.LeerFormasCredito(_configuration);
 
-        var valores = new Dapper.DynamicParameters();
-        valores.Add("@desde", ventana.Desde.Date);
-        valores.Add("@hasta", ventana.Hasta.Date);
-        valores.Add("@formasCredito", formasCredito);
-
-        var condicionesExtra = new System.Collections.Generic.List<string>
-        {
-            "pv.FECHA >= @desde",
-            "pv.FECHA <= @hasta",
-        };
-
-        if (filtros.RouteId is int ruta)
-        {
-            condicionesExtra.Add("pv.VENDEDOR_ID = @ruta");
-            valores.Add("@ruta", ruta);
-        }
+        var (condicionesExtra, valores) = ReportFilterSqlBuilder.Construir(
+            filtros,
+            userZoneIds,
+            ventana,
+            incluirFormasCredito: true,
+            formasCredito
+        );
 
         var where = string.Join(" AND ", condicionesExtra);
         var condVenta = VentaQueryConstants.CondicionVenta;
+        var routeExpr = "COALESCE(NULLIF(TRIM(v.NOMBRE), ''), 'Venta de Mostrador')";
 
         var sql = $"""
             SELECT
-                COALESCE(v.NOMBRE, 'Venta de Mostrador') AS RouteName,
+                {routeExpr} AS RouteName,
                 CAST(COUNT(CASE WHEN {condVenta} THEN 1 END) AS INTEGER) AS Pieces,
                 COALESCE(SUM(CASE WHEN {condVenta}
                     AND NOT EXISTS (SELECT 1 FROM DOCTOS_PV_COBROS cb
@@ -70,7 +62,7 @@ public class ReportsWebService : IReportsWebService
             FROM DOCTOS_PV pv
             LEFT JOIN VENDEDORES v ON v.VENDEDOR_ID = pv.VENDEDOR_ID
             WHERE {where}
-            GROUP BY COALESCE(v.NOMBRE, 'Venta de Mostrador')
+            GROUP BY {routeExpr}
             ORDER BY TotalAmount DESC
             """;
 
@@ -92,12 +84,7 @@ public class ReportsWebService : IReportsWebService
             return new SalesReportResponse
             {
                 ByRoute = byRoute,
-                Totals  = new SalesTotalsDto
-                {
-                    SalesAmount = byRoute.Sum(r => r.TotalAmount),
-                    Pieces      = byRoute.Sum(r => r.Pieces),
-                    Currency    = "MXN",
-                },
+                Totals  = CalcularTotales(byRoute),
                 Status = "ok",
             };
         }
@@ -119,7 +106,25 @@ public class ReportsWebService : IReportsWebService
         public decimal TotalAmount { get; set; }
     }
 
-    public Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, CancellationToken ct = default)
+    /// <summary>
+    /// Totales del período calculados EXCLUSIVAMENTE desde las filas by_route,
+    /// para que footer, gráfica y KPI usen la misma fuente. Internal para poder
+    /// probar la regla sin Firebird.
+    /// </summary>
+    internal static SalesTotalsDto CalcularTotales(IReadOnlyCollection<RouteSalesAggregateDto> byRoute)
+    {
+        return new SalesTotalsDto
+        {
+            SalesAmount  = byRoute.Sum(r => r.TotalAmount),
+            CashAmount   = byRoute.Sum(r => r.CashAmount),
+            CreditAmount = byRoute.Sum(r => r.CreditAmount),
+            TotalAmount  = byRoute.Sum(r => r.TotalAmount),
+            Pieces       = byRoute.Sum(r => r.Pieces),
+            Currency     = "MXN",
+        };
+    }
+
+    public Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default)
     {
         if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
             throw new FeatureNotReadyException("Reports");
@@ -131,7 +136,7 @@ public class ReportsWebService : IReportsWebService
         return Task.FromResult(new ComparisonResponse { Currency = "MXN", Status = "unknown" });
     }
 
-    public Task<SalesReportResponse> ObtenerRentabilidadPorRutaAsync(ReportFilterQuery filtros, CancellationToken ct = default)
+    public Task<SalesReportResponse> ObtenerRentabilidadPorRutaAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default)
     {
         if (!_configuration.GetValue<bool>("WebFeatures:Reports"))
             throw new FeatureNotReadyException("Reports");

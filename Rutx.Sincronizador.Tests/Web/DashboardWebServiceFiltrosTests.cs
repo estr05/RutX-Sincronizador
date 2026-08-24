@@ -89,12 +89,12 @@ public class DashboardWebServiceFiltrosTests
     [Fact]
     public void Filtro_ZonaPedidaFueraDelAlcance_PredicadoFalso()
     {
-        // IntersecciÃ³n silenciosa: lista vacÃ­a â‡’ ninguna fila cumple â‡’ cero resultados.
-        var (_, valores) = CrearServicio().ConstruirFiltroComun(
+        // Intersección silenciosa: se inyecta 1=0 para retornar cero resultados.
+        var (condiciones, _) = CrearServicio().ConstruirFiltroComun(
             new ReportFilterQuery { ZoneId = 9999 }, new[] { 3792, 3793 },
             (new(2026, 8, 1), new(2026, 8, 1)), false);
 
-        Assert.Empty(ValorLista<int>(valores, "@zonas"));
+        Assert.Contains("1=0", condiciones);
     }
 
     [Fact]

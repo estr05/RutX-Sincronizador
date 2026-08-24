@@ -234,17 +234,17 @@ public class DashboardWebService : IDashboardWebService
 
     // =========================================================================
     // WRAPPERS DE COMPATIBILIDAD
-    // Delegan a VentaQueryConstants para no romper los tests existentes que 
+    // Delegan a VentaQueryConstants para no romper los tests existentes que
     // actualmente llaman a estos métodos desde DashboardWebService.
     // =========================================================================
 
     internal static string NormalizarRango(string? rango) => VentaQueryConstants.NormalizarRango(rango);
 
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros) 
-        => VentaQueryConstants.ResolverVentanaResumen(filtros);
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros, DateTime? referencia = null)
+        => VentaQueryConstants.ResolverVentanaResumen(filtros, referencia);
 
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango) 
-        => VentaQueryConstants.ResolverVentanaSerie(filtros, rango);
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango, DateTime? referencia = null)
+        => VentaQueryConstants.ResolverVentanaSerie(filtros, rango, referencia);
 
     internal static DateTime? ParsearFecha(string? fecha) => VentaQueryConstants.ParsearFecha(fecha);
 

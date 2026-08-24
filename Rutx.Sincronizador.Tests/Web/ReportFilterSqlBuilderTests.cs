@@ -108,4 +108,21 @@ public class ReportFilterSqlBuilderTests
         Assert.Equal(new DateTime(2026, 8, 1), valores.Get<DateTime>("desde"));
         Assert.Equal(new DateTime(2026, 8, 21), valores.Get<DateTime>("hasta"));
     }
+
+    [Fact]
+    public void Construir_FechasConHora_SeTruncanParaCompatibilidadConDoctosPvFecha()
+    {
+        // EVIDENCIA DE ESQUEMA:
+        // En DOCTOS_PV la FECHA y la HORA son columnas separadas.
+        // FECHA es un DATE estricto (00:00:00).
+        // Por tanto, la condicion inclusiva "pv.FECHA <= @hasta" es 100% precisa
+        // y abarca todo el dia sin necesidad de un tope exclusivo (< dia+1).
+        var ventana = (new DateTime(2026, 8, 1, 15, 30, 0), new DateTime(2026, 8, 21, 23, 59, 59));
+
+        var (_, valores) = ReportFilterSqlBuilder.Construir(
+            new ReportFilterQuery(), Array.Empty<int>(), ventana, false, Array.Empty<int>());
+
+        Assert.Equal(new DateTime(2026, 8, 1), valores.Get<DateTime>("desde"));
+        Assert.Equal(new DateTime(2026, 8, 21), valores.Get<DateTime>("hasta"));
+    }
 }

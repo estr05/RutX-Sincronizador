@@ -9,15 +9,15 @@ namespace Rutx.Sincronizador.Services.Web;
 public interface IReportsWebService
 {
     /// <summary>GET /api/v2/web/reports/sales → SalesReportResponse (agregados por ruta).</summary>
-    Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+    Task<SalesReportResponse> ObtenerReporteVentasAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default);
 
     /// <summary>GET /api/v2/web/reports/sales-comparison → ComparisonResponse (dos series).</summary>
-    Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+    Task<ComparisonResponse> ObtenerComparativaAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default);
 
     /// <summary>
     /// GET /api/v2/web/reports/route-profitability → rentabilidad por ruta.
     /// Prioridad Posterior en el contrato v2 §6.3; solo se activa si el cliente
     /// lo contrata (equivalente funcional a VeMobile).
     /// </summary>
-    Task<SalesReportResponse> ObtenerRentabilidadPorRutaAsync(ReportFilterQuery filtros, CancellationToken ct = default);
+    Task<SalesReportResponse> ObtenerRentabilidadPorRutaAsync(ReportFilterQuery filtros, IReadOnlyList<int> userZoneIds, CancellationToken ct = default);
 }

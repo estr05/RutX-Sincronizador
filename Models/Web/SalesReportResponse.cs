@@ -19,6 +19,9 @@ public class SalesReportResponse
 public class SalesTotalsDto
 {
     public decimal SalesAmount { get; set; }
+    public decimal CashAmount { get; set; }
+    public decimal CreditAmount { get; set; }
+    public decimal TotalAmount { get; set; }
     public int Pieces { get; set; }
     public string Currency { get; set; } = "MXN";
 }

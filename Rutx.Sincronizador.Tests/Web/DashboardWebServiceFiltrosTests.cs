@@ -89,12 +89,12 @@ public class DashboardWebServiceFiltrosTests
     [Fact]
     public void Filtro_ZonaPedidaFueraDelAlcance_PredicadoFalso()
     {
-        // IntersecciÃ³n silenciosa: lista vacÃ­a â‡’ ninguna fila cumple â‡’ cero resultados.
-        var (_, valores) = CrearServicio().ConstruirFiltroComun(
+        // Intersección silenciosa: se inyecta 1=0 para retornar cero resultados.
+        var (condiciones, _) = CrearServicio().ConstruirFiltroComun(
             new ReportFilterQuery { ZoneId = 9999 }, new[] { 3792, 3793 },
             (new(2026, 8, 1), new(2026, 8, 1)), false);
 
-        Assert.Empty(ValorLista<int>(valores, "@zonas"));
+        Assert.Contains("1=0", condiciones);
     }
 
     [Fact]
@@ -215,11 +215,32 @@ public class DashboardWebServiceFiltrosTests
     }
 
     [Fact]
-    public void VentanaSerie_Semanal_SinFechas_Ultimos7DiasDesdeHoy()
+    public void VentanaSerie_Semanal_DesdeLunes_DevuelveLunesALunes()
     {
-        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal");
-        Assert.Equal(Hoy.AddDays(-6), ventana.Desde);  // HOY-6 a HOY inclusive = 7 días
-        Assert.Equal(Hoy, ventana.Hasta);
+        var lunes = new DateTime(2026, 8, 17); // Lunes
+        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal", lunes);
+        Assert.Equal(lunes, ventana.Desde);
+        Assert.Equal(lunes, ventana.Hasta);
+    }
+
+    [Fact]
+    public void VentanaSerie_Semanal_DesdeMiercoles_DevuelveLunesAMiercoles()
+    {
+        var miercoles = new DateTime(2026, 8, 19); // Miércoles
+        var lunes = new DateTime(2026, 8, 17);
+        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal", miercoles);
+        Assert.Equal(lunes, ventana.Desde);
+        Assert.Equal(miercoles, ventana.Hasta);
+    }
+
+    [Fact]
+    public void VentanaSerie_Semanal_DesdeDomingo_DevuelveLunesADomingo()
+    {
+        var domingo = new DateTime(2026, 8, 23); // Domingo
+        var lunes = new DateTime(2026, 8, 17);
+        var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal", domingo);
+        Assert.Equal(lunes, ventana.Desde);
+        Assert.Equal(domingo, ventana.Hasta);
     }
 
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

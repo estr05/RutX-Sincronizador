@@ -75,12 +75,12 @@ internal static class VentaQueryConstants
     /// - Semanal: Lunes de esta semana a Hoy
     /// - Mensual: Día 1 del mes actual a Hoy
     /// </summary>
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros)
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros, DateTime? referencia = null)
     {
         var explicita = VentanaExplicita(filtros);
         if (explicita.HasValue) return explicita.Value;
 
-        var hoy = DateTime.Today;
+        var hoy = referencia ?? DateTime.Today;
         return NormalizarRango(filtros.Range) switch
         {
             "semanal" => (LunesDe(hoy), hoy),
@@ -92,19 +92,19 @@ internal static class VentaQueryConstants
     /// <summary>
     /// Ventana de fechas para gráficas de series (datos históricos).
     /// - Diario: Solo hoy (para ver 24 horas)
-    /// - Semanal: Últimos 7 días (HOY-6 a HOY inclusive)
+    /// - Semanal: Semana calendario actual (lunes a hoy)
     /// - Mensual: Últimos 12 meses (Día 1 de hace 11 meses a Hoy)
     /// </summary>
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango)
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango, DateTime? referencia = null)
     {
         var explicita = VentanaExplicita(filtros);
         if (explicita.HasValue) return explicita.Value;
 
-        var hoy = DateTime.Today;
+        var hoy = referencia ?? DateTime.Today;
         return rango switch
         {
             "mensual" => (new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-11), hoy),
-            "semanal" => (LunesDe(hoy), hoy),     // Igual que los KPIs: lunes→hoy
+            "semanal" => (LunesDe(hoy), hoy),     // Semana calendario actual: lunes→hoy
             _ => (hoy, hoy),                       // Diario: solo hoy
         };
     }

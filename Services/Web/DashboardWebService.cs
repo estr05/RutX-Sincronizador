@@ -211,55 +211,18 @@ public class DashboardWebService : IDashboardWebService
     // CONSTRUCCIÓN DE FILTROS COMUNES (fechas, ruta, zonas, formas de crédito)
     // ────────────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Condiciones WHERE compartidas por resumen y serie. Las fechas siempre
-    /// acotan el rango; zona y ruta son opcionales. La lista de zonas vacía
-    /// (zona fuera de alcance) produce un predicado falso: cero resultados.
-    /// Internal para poder probar las reglas de negocio sin Firebird.
-    /// </summary>
     internal (List<string> Condiciones, DynamicParameters Valores) ConstruirFiltroComun(
         ReportFilterQuery filtros,
         IReadOnlyList<int> userZoneIds,
         (DateTime Desde, DateTime Hasta) ventana,
         bool incluirFormasCredito)
     {
-        var condiciones = new List<string>
-        {
-            "pv.FECHA >= @desde",
-            "pv.FECHA <= @hasta",
-        };
-
-        var valores = new DynamicParameters();
-        valores.Add("@desde", ventana.Desde.Date);
-        valores.Add("@hasta", ventana.Hasta.Date);
-
-        if (filtros.RouteId is int ruta)
-        {
-            condiciones.Add("pv.VENDEDOR_ID = @ruta");
-            valores.Add("@ruta", ruta);
-        }
-
-        List<int>? zonasActivas;
-        if (filtros.ZoneId is int zona)
-            zonasActivas = userZoneIds.Count == 0 || userZoneIds.Contains(zona)
-                ? new List<int> { zona }
-                : new List<int>();
-        else if (userZoneIds.Count > 0)
-            zonasActivas = userZoneIds.ToList();
-        else
-            zonasActivas = null;
-
-        if (zonasActivas != null)
-        {
-            condiciones.Add(
-                "EXISTS (SELECT 1 FROM CLIENTES cz WHERE cz.CLIENTE_ID = pv.CLIENTE_ID AND cz.ZONA_CLIENTE_ID IN @zonas)");
-            valores.Add("@zonas", zonasActivas);
-        }
-
-        if (incluirFormasCredito)
-            valores.Add("@formasCredito", LeerFormasCredito());
-
-        return (condiciones, valores);
+        return ReportFilterSqlBuilder.Construir(
+            filtros,
+            userZoneIds,
+            ventana,
+            incluirFormasCredito,
+            incluirFormasCredito ? LeerFormasCredito() : Array.Empty<int>());
     }
 
     /// <summary>Formas de cobro que el cliente considera crédito; sin config, ninguna (-1).</summary>
@@ -271,17 +234,17 @@ public class DashboardWebService : IDashboardWebService
 
     // =========================================================================
     // WRAPPERS DE COMPATIBILIDAD
-    // Delegan a VentaQueryConstants para no romper los tests existentes que 
+    // Delegan a VentaQueryConstants para no romper los tests existentes que
     // actualmente llaman a estos métodos desde DashboardWebService.
     // =========================================================================
 
     internal static string NormalizarRango(string? rango) => VentaQueryConstants.NormalizarRango(rango);
 
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros) 
-        => VentaQueryConstants.ResolverVentanaResumen(filtros);
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaResumen(ReportFilterQuery filtros, DateTime? referencia = null)
+        => VentaQueryConstants.ResolverVentanaResumen(filtros, referencia);
 
-    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango) 
-        => VentaQueryConstants.ResolverVentanaSerie(filtros, rango);
+    internal static (DateTime Desde, DateTime Hasta) ResolverVentanaSerie(ReportFilterQuery filtros, string rango, DateTime? referencia = null)
+        => VentaQueryConstants.ResolverVentanaSerie(filtros, rango, referencia);
 
     internal static DateTime? ParsearFecha(string? fecha) => VentaQueryConstants.ParsearFecha(fecha);
 

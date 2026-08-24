@@ -32,7 +32,7 @@ public class ReportsController : ControllerBase
     {
         try
         {
-            var data = await _reportsWebService.ObtenerReporteVentasAsync(filtros, ct);
+            var data = await _reportsWebService.ObtenerReporteVentasAsync(filtros, WebClaims.Zonas(User), ct);
             return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
@@ -50,7 +50,7 @@ public class ReportsController : ControllerBase
     {
         try
         {
-            var data = await _reportsWebService.ObtenerComparativaAsync(filtros, ct);
+            var data = await _reportsWebService.ObtenerComparativaAsync(filtros, WebClaims.Zonas(User), ct);
             return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)
@@ -69,7 +69,7 @@ public class ReportsController : ControllerBase
     {
         try
         {
-            var data = await _reportsWebService.ObtenerRentabilidadPorRutaAsync(filtros, ct);
+            var data = await _reportsWebService.ObtenerRentabilidadPorRutaAsync(filtros, WebClaims.Zonas(User), ct);
             return Ok(WebEnvelope.Success(HttpContext, data, filters: filtros));
         }
         catch (Exception ex)

@@ -46,7 +46,7 @@ public static class ReportFilterSqlBuilder
             {
                 // Zona solicitada fuera de alcance
                 condiciones.Add("1=0");
-                return (condiciones, valores);
+                zonasActivas = null;
             }
         }
         else if (userZoneIds.Count > 0)

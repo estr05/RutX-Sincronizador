@@ -139,7 +139,7 @@ public class ReportFilterSqlBuilderTests
 
         // Debe devolver la denegación...
         Assert.Contains("1=0", condiciones);
-        
+
         // ... Y ADEMÁS no debe abortar antes de incluir formasCredito (evitando el HTTP 500 / SQL Token Unknown).
         Assert.Contains("formasCredito", valores.ParameterNames);
         Assert.Equal(formasCredito, valores.Get<int[]>("formasCredito"));

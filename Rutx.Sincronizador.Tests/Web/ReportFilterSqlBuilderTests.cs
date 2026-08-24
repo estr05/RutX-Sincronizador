@@ -125,4 +125,23 @@ public class ReportFilterSqlBuilderTests
         Assert.Equal(new DateTime(2026, 8, 1), valores.Get<DateTime>("desde"));
         Assert.Equal(new DateTime(2026, 8, 21), valores.Get<DateTime>("hasta"));
     }
+
+    [Fact]
+    public void Construir_ZonaFueraDeAlcanceConFormasCredito_InyectaFalsoYConservaParametros()
+    {
+        // Regresión: cca34ee
+        var filtros = new ReportFilterQuery { ZoneId = 3 }; // Fuera de alcance
+        var userZonas = new[] { 1, 2 }; // Zona diferente
+        var formasCredito = new[] { 71, 703, 2205 };
+
+        var (condiciones, valores) = ReportFilterSqlBuilder.Construir(
+            filtros, userZonas, (DateTime.Today, DateTime.Today), incluirFormasCredito: true, formasCredito);
+
+        // Debe devolver la denegación...
+        Assert.Contains("1=0", condiciones);
+        
+        // ... Y ADEMÁS no debe abortar antes de incluir formasCredito (evitando el HTTP 500 / SQL Token Unknown).
+        Assert.Contains("formasCredito", valores.ParameterNames);
+        Assert.Equal(formasCredito, valores.Get<int[]>("formasCredito"));
+    }
 }

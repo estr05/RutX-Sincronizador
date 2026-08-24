@@ -1,0 +1,64 @@
+# ====================================================================
+# RutX Sincronizador - Plantilla de configuracion de Cloudflare Tunnel
+# ====================================================================
+# INSTRUCCIONES:
+#   NO edite este archivo para desplegar. Use:
+#     Deploy\Cloudflare\Prepare-CloudflareTunnel.ps1
+#   que materializa una copia real sustituyendo <TUNNEL_UUID> y
+#   <HOSTNAME>, la coloca en el perfil del servicio Windows y valida
+#   el ingress. Este archivo JAMAS debe contener valores reales.
+#
+# Reglas: se evaluan EN ORDEN; la primera coincidencia gana.
+# El catch-all final responde 404 a todo lo no listado (admin, portal
+# web v2 y debug NUNCA son publicos). Origen: HTTP local plano, por eso
+# NO se usa TLS ni certificados hacia el origen.
+# ====================================================================
+
+tunnel: <TUNNEL_UUID>
+credentials-file: C:\Windows\System32\config\systemprofile\.cloudflared\<TUNNEL_UUID>.json
+
+originRequest:
+  connectTimeout: 30s
+
+ingress:
+  # --- Salud ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/health$
+
+  # --- Autenticacion movil (AuthController) ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/auth/(login|me)$
+
+  # --- Jornada y cierre (RouteController) ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/routes/(sync|summary|close)$
+
+  # --- Ventas y no-ventas PV (VentasPvController); la foto viaja inline
+  #     en el multipart de /noventa, por eso /fotos/{nombre} no se publica.
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/pv/(ventas|noventa)$
+
+  # --- Cobranza ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/cobranza/insert$
+
+  # --- Credito (id numerico: el controlador recibe int) ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/credito/clientes/[0-9]+/documentos$
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/credito/pedidos$
+
+  # --- Mensajeria (GET consumido por Flutter) ---
+  - hostname: <HOSTNAME>
+    service: http://127.0.0.1:5048
+    path: ^/api/v1/messages/?$
+
+  # --- Catch-all obligatorio: todo lo demas -> 404 ---
+  - service: http_status:404

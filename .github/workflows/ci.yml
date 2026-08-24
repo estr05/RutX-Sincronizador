@@ -1,15 +1,16 @@
 # ============================================================
 # CI — RutX-Sincronizador
-# Ejecuta en cada push y PR hacia fix/sprint4-secrets-firebird y main.
-# Pasos: secret-scan (ubuntu) -> restore → build → unit tests (windows)
+# Ejecuta en cada push y PR hacia main y las ramas de integración.
+# Pasos: secret-scan (gitleaks) -> restore → build -> gate secretos
+#        propio -> unit tests (windows)
 # ============================================================
 name: "Sincronizador CI"
 
 on:
   push:
-    branches: ["main", "fix/sprint4-secrets-firebird"]
+    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel"]
   pull_request:
-    branches: ["main", "fix/sprint4-secrets-firebird"]
+    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel"]
 
 jobs:
   secret-scan:
@@ -51,32 +52,9 @@ jobs:
       - name: Build (Release)
         run: dotnet build Rutx.Sincronizador.csproj --configuration Release --no-restore
 
-      - name: Check for hardcoded masterkey in source
-        run: |
-          set -euo pipefail
-
-          found="$(
-            grep -RIn --include='*.cs' --include='*.json' \
-              --exclude-dir='.git' \
-              --exclude-dir='bin' \
-              --exclude-dir='obj' \
-              --exclude-dir='Rutx.Sincronizador.Tests' \
-              'masterkey' . 2>/dev/null || true
-          )"
-
-          # Permitir únicamente las apariciones deliberadas del validador que rechaza
-          # masterkey; todo uso operativo debe fallar.
-          found="$(printf '%s\n' "$found" \
-            | grep -v '^./Security/ProductionConfigurationValidator.cs:' \
-            || true)"
-
-          if [[ -n "${found//[[:space:]]/}" ]]; then
-            echo 'FALLO: referencia operativa a masterkey encontrada:'
-            printf '%s\n' "$found"
-            exit 1
-          fi
-
-          echo 'OK: no hay uso operativo de masterkey.'
+      - name: Secret scan (Invoke-SecretScan.ps1 - gate propio)
+        shell: pwsh
+        run: ./Scripts/Invoke-SecretScan.ps1
 
       - name: Run unit tests
         run: |

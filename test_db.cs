@@ -5,7 +5,7 @@ using Dapper;
 
 class Program {
     static void Main() {
-        var cs = "DataSource=localhost;Database=C:\\Microsip datos\\RUTX.FDB;User=SYSDBA;Password=masterkey";
+        var cs = $"DataSource=localhost;Database=C:\\Microsip datos\\RUTX.FDB;User=SYSDBA;Password={Environment.GetEnvironmentVariable("RUTX_TESTDB_PASSWORD")}";
         using var conn = new FbConnection(cs);
         var count = conn.QueryFirstOrDefault<int>("SELECT COUNT(*) FROM DOCTOS_PV WHERE TIPO_DOCTO='V' AND ESTATUS='N'");
         Console.WriteLine("Total Ventas validas en BD: " + count);

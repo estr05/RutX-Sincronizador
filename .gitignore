@@ -34,3 +34,17 @@ Desktop.ini
 
 # Salida de publicacion (generada por publicar.bat)
 publica/
+
+# ===================================================================
+# Cloudflare Tunnel (secretos locales, JAMAS versionar)
+# ===================================================================
+Deploy/Cloudflare/config.yml
+Deploy/Cloudflare/*.json
+Deploy/Cloudflare/*.pem
+Deploy/Cloudflare/*.log
+*.cfargotunnel.com.json
+
+# ===================================================================
+# Configuracion local fuera de Git (credenciales reales dev/demo)
+# ===================================================================
+appsettings.Local.json

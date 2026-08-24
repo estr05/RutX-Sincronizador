@@ -244,3 +244,35 @@ El Sincronizador estÃ¡ diseÃ±ado para mantener las cargas Ãºtiles (payloads) de 
   }
 }
 ```
+
+---
+
+## N. Transporte y base URL pública (Cloudflare Tunnel)
+
+Los payloads de este contrato NO cambian. Lo único que cambia es el origen:
+
+- **Producción:** `https://sync.<cliente>.com` (Cloudflare Tunnel ? listener
+  loopback `127.0.0.1:5048` del Sincronizador). La APK se compila con
+  `--dart-define=API_BASE_URL=https://sync.<cliente>.com` (repo appmovil).
+- **Desarrollo:** HTTP directo LAN/Tailscale a `:5047` (sin define).
+
+### Allowlist publicada en el túnel (todo lo demás ? 404 del edge)
+
+| Ruta | Método |
+|---|---|
+| `/health` | GET |
+| `/api/auth/login`, `/api/auth/me` | POST / GET |
+| `/api/v1/routes/sync`, `/summary` | GET |
+| `/api/v1/routes/close` | POST |
+| `/api/v1/pv/ventas`, `/api/v1/pv/noventa` | POST |
+| `/api/v1/cobranza/insert` | POST |
+| `/api/v1/credito/pedidos` | GET |
+| `/api/v1/credito/clientes/{id:int}/documentos` (regex `[0-9]+`) | GET |
+| `/api/v1/messages` | GET |
+
+NO publicadas: `/admin`, `/api/v2/admin/*`, `/api/v2/web/*`,
+`/api/v1/routes/debug/*`, `/api/v1/inventario/*`, `/api/v1/pv/fotos/*`,
+aplicar/cancelar/consultar ticket PV.
+
+> Regla: una ruta nueva consumida por Flutter exige actualización
+> SIMULTÁNEA de este contrato + allowlist ingress + pruebas.

@@ -4,6 +4,28 @@
 rotados (muertos), siguen visibles en el historial. Esta purga es parte
 obligatoria del feature Cloudflare Tunnel, no una tarea opcional futura.
 
+## Estado y evidencia del inventario (2026-08-24)
+
+| Repo | Hallazgo en historial (`git log --all -S`) | Acción |
+|---|---|---|
+| Sincronizador | JWT vieja: ≥2 commits; `Password=masterkey`: ≥9 commits | **PURGAR** |
+| App móvil | 0 hits para JWT vieja y `masterkey` en TODO el historial | **Sin reescritura** — no hay nada que purgar |
+
+* El conteo del sincronizador es un PISO, no el total exacto: el pickaxe
+  (`log -S`) aborta recorridos con errores de textconv por un filtro
+  global de `.doc` (`Mapeo_Clientes_Microsip.doc`). Por eso la
+  verificación post-purga usa `git grep` sobre blobs (ver abajo), inmune
+  a ese ruido.
+* Consecuencia práctica: **solo el sincronizador se reescribe.** Los
+  commits locales `a79cf8c` y `1487b39` obtendrán HASHES NUEVOS tras la
+  purga y su push NUNCA será fast-forward (será force-push coordinado).
+  En el móvil, `b26fea0` conserva su hash y sí es fast-forward.
+* `expresiones_sincronizador.txt` vive FUERA del repositorio
+  (`%TEMP%\opencode\purga\`) porque contiene los literales vivos que se
+  van a borrar; jamás debe versionarse.
+* Respaldo externo acordado: `C:\Users\estra\Backups\purga-2026-08-24\`.
+
+
 ## Secuencia correcta (resuelve la contradicción v3)
 
 > **NO publicar primero y purgar después.** El orden vinculante es:
@@ -24,13 +46,16 @@ obligatoria del feature Cloudflare Tunnel, no una tarea opcional futura.
 8. PUSH/PR normal            recién aquí continúa el flujo habitual
 ```
 
-## Literales objetivo (`expresiones.txt`)
+## Literales objetivo (archivo externo `expresiones_sincronizador.txt`)
+
+> Sintaxis filter-repo: `literal==>reemplazo` (DOS equals). El espaciado
+> debe coincidir EXACTO con el blob histórico; verificado contra
+> `git show 9e426cb:appsettings.json`.
 
 ```
-RUTX_SECRET_KEY_PRODUCTION_SECURE_KEY_GENERATED_32_BYTES_MINIMUM_2026_TOKEN===>***REMOVED***
-Password=masterkey===>Password=***REMOVED***
-password=masterkey===>password=***REMOVED***
-"AdminPassword":"admin"===>"AdminPassword":"***REMOVED***"
+RUTX_SECRET_KEY_PRODUCTION_SECURE_KEY_GENERATED_32_BYTES_MINIMUM_2026_TOKEN==>REDACTED_ROTATED_JWT
+Password=masterkey==>Password=REDACTED_ROTATED_FIREBIRD
+"AdminPassword": "admin"==>"AdminPassword": "REDACTED"
 ```
 
 > Los fixtures deliberados de tests y el validador usan `masterkey` como
@@ -40,36 +65,70 @@ password=masterkey===>password=***REMOVED***
 > `Security/ProductionConfigurationValidator.cs` por comparación contra
 > constante ofuscada y regenerar fixtures.
 
-## Comandos (por repo, con `git-filter-repo` instalado)
+## Comandos (SOLO sincronizador; ejecutar en la ventana coordinada)
 
 ```powershell
-# 0. Prerrequisito: equipo notificado, sin cambios locales pendientes.
-git bundle create ..\respaldo-<repo>.bundle --all
+# 0. Prerrequisito: equipo notificado, validación demo completa,
+#    sin cambios locales pendientes (git status limpio).
+cd "C:\MyProyects\Teknologix prueba\sincronizador-demo"
 
-pip install git-filter-repo   # herramienta estándar (justificada; no es dependencia del producto)
+# 1. RESPALDO EXTERNO bloqueante
+git bundle create C:\Users\estra\Backups\purga-2026-08-24\rutx-sincronizador.bundle --all
 
-git filter-repo --replace-text expresiones.txt --force
-# filter-repo elimina el remote; re-agregar:
-git remote add origin https://github.com/estr05/<repo>.git
+# 2. PURGA (filter-repo ya instalado; si falta: pip install git-filter-repo)
+git filter-repo --replace-text "$env:TEMP\opencode\purga\expresiones_sincronizador.txt" --force
 
+# 3. filter-repo elimina el remote; re-agregar con la URL exacta:
+git remote add origin https://github.com/estr05/RutX-Sincronizador.git
+
+# 4. FORCE-PUSH controlado (NO es fast-forward: los hashes cambiaron)
 git push --force --all origin
 git push --force --tags origin
+
+# 5. TODOS los clones locales del equipo se BORRAN y reclonan.
 ```
+
+> El móvil NO se reescribe: su push de `b26fea0` es fast-forward normal
+> y puede hacerse en cualquier momento posterior a esta coordinación.
 
 ## Post-purga
 
-1. Clon FRESCO en otra carpeta:
+1. Clon FRESCO en otra carpeta y verificación ROBUSTA por blobs
+   (`git grep` sobre cada commit; `log -S` queda descartado por el
+   ruido de textconv de `.doc`):
    ```powershell
-   git log --all -S "RUTX_SECRET_KEY_PRODUCTION_SECURE_KEY_GENERATED_32_BYTES_MINIMUM_2026_TOKEN"  # vacío
-   git log --all -S "masterkey" -- appsettings.json appsettings.Development.json                    # vacío
-   pwsh Scripts/Invoke-SecretScan.ps1 -IncludeHistory                                               # exit 0
+   git clone C:\Users\estra\Backups\purga-2026-08-24\rutx-sincronizador.bundle clon-verificacion
+   cd clon-verificacion
+
+   $literales = @(
+     'RUTX_SECRET_KEY_PRODUCTION_SECURE_KEY_GENERATED_32_BYTES_MINIMUM_2026_TOKEN',
+     'Password=masterkey',
+     '"AdminPassword": "admin"'
+   )
+   foreach ($lit in $literales) {
+     $hits = 0
+     foreach ($sha in git rev-list --all) {
+       if (git grep -qF -- "$lit" $sha 2>$null) { Write-Output "QUEDA: $lit en $sha"; $hits++ }
+     }
+     if ($hits -eq 0) { Write-Output "LIMPIO: $lit" }
+   }
    ```
-2. Verificar búsqueda de GitHub UI sobre el repo.
-3. **Limitaciones honestas:** forks existentes y caches de PRs pueden
+   Resultado esperado: tres líneas `LIMPIO:` y cero `QUEDA:`.
+2. Gates en el clon sanitizado:
+   ```powershell
+   dotnet build Rutx.Sincronizador.csproj -c Release
+   dotnet test Rutx.Sincronizador.Tests -c Release --filter Category!=Integration   # 230/230
+   pwsh Scripts/Invoke-SecretScan.ps1 -IncludeHistory                               # exit 0
+   ```
+3. Verificar búsqueda de GitHub UI sobre el repo.
+4. **Limitaciones honestas:** forks existentes y caches de PRs pueden
    retener blobs antiguos. GitHub eventualmente hace GC de objetos
    inalcanzables; si se juzga crítico, solicitar limpieza a soporte de
    GitHub indicando los SHAs afectados. Los colaboradores deben borrar
    sus clones locales viejos.
+5. Con gates en verde sobre los HASHES NUEVOS se abren los PRs
+   (los hashes a79cf8c/1487b39 citados en mensajes quedan como
+   referencia histórica únicamente).
 
 ## Rollback de la purga
 

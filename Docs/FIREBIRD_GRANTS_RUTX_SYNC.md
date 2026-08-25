@@ -2,10 +2,14 @@
 
 > **ESTADO: PROPUESTA PARA REVISIÓN — NO EJECUTADA.**
 > Este script NO ha corrido contra la base de producción. Secuencia obligatoria:
-> 1) ejecutar sobre una **copia** de la BD en un entorno controlado;
-> 2) probar login + sync LAN desde la app;
-> 3) documentar aquí los permisos efectivos resultantes;
-> 4) solo entonces aplicar en el equipo demo.
+> 1) copia CONSISTENTE con `gbak -b` + restore a un **alias aislado** de
+>    `databases.conf` (nunca file-copy del .FDB; nunca sobre la BD de Microsip);
+> 2) ejecutar el script SOLO contra ese alias, tras confirmación explícita;
+> 3) correr la matriz de permisos derivada del código real
+>    (`Deploy/Firebird/FaseB_03_matriz_permisos.ps1`);
+> 4) probar login + sync LAN desde la app;
+> 5) documentar aquí los permisos efectivos resultantes;
+> 6) solo entonces aplicar en el equipo demo.
 >
 > Derivado del análisis estático del SQL real en `Services/` y `Data/`
 > (grep de FROM/JOIN/INSERT INTO/UPDATE sobre el código versionado).
@@ -23,8 +27,8 @@
 ## Script (para revisión)
 
 ```sql
--- Ejecutar conectado como SYSDBA SOBRE UNA COPIA de la BD del cliente
-CREATE USER RUTX_SYNC PASSWORD '<aleatoria>=20+' GRANT ADMIN ROLE; -- sin admin role si no se requiere
+-- Ejecutar conectado como SYSDBA SOBRE LA COPIA AISLADA (alias rutx_e2e_copia)
+CREATE USER RUTX_SYNC PASSWORD '<aleatoria>=20+'; -- SIN admin role: no lo requiere
 -- (Firebird 4+: CREATE USER RUTX_SYNC PASSWORD '...' USING PLUGIN Srp;)
 
 -- Lectura de catálogos y consultas
@@ -77,12 +81,31 @@ GRANT SELECT, INSERT         ON DIRS_CLIENTES TO RUTX_SYNC;
   DELETE real en `Services/`).
 - No se alteran usuarios ni roles existentes; SYSDBA queda intacto.
 
+## Matriz de verificación de permisos (fase B, sobre la copia)
+
+Ejecutada por `Deploy/Firebird/FaseB_03_matriz_permisos.ps1` conectando como
+`RUTX_SYNC` al alias aislado. NUNCA se asume que todo INSERT deba fallar:
+
+- **Positivos (deben funcionar):** SELECT literal de cada tabla otorgada y
+  las escrituras reales de ventas, cobranza, folios y caja (INSERT/UPDATE
+  según la tabla), ejecutadas dentro de transacción con ROLLBACK para no
+  persistir datos.
+- **Negativos (deben fallar):** DDL (`CREATE`/`DROP`), `DELETE` en tablas
+  de negocio, SELECT sobre tablas fuera de alcance (p. ej. `DOCTOS_IN`),
+  UPDATE de catálogos (p. ej. `MONEDAS`), y ejercicio de privilegios de
+  administración/herencia (p. ej. que RUTX_SYNC intente otorgar permisos).
+- **Regla de escalado:** si un trigger/generador rechaza una escritura
+  legítima, se DETIENE y reporta el permiso exacto faltante; NO se otorgan
+  privilegios amplios automáticamente. Cualquier grant adicional exige tu
+  confirmación explícita.
+
 ## Checklist post-aplicación (en copia)
 
 - [ ] Login móvil OK con credenciales del vendedor.
 - [ ] `GET /api/v1/routes/sync` descarga catálogos completos.
-- [ ] `POST /api/v1/pv/ventas` genera docto + folio + inventario.
-- [ ] `POST /api/v1/pv/noventa` (con foto) OK.
-- [ ] `POST /api/v1/cobranza/insert` afecta DOCTOS_CC correctamente.
+- [ ] `POST /api/v1/pv/ventas` genera docto + folio + inventario
+      (registro marcado `RUTX-E2E`, folio inicial/final documentados).
+- [ ] `POST /api/v1/pv/noventa` (con foto) OK (idem).
+- [ ] `POST /api/v1/cobranza/insert` afecta DOCTOS_CC correctamente (idem).
 - [ ] `GET /api/v1/credito/clientes/{id}/documentos` devuelve saldos.
 - [ ] Sin errores de permisos en `Logs/sincronizador.log`.

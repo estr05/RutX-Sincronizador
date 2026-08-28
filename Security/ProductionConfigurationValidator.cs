@@ -75,6 +75,15 @@ namespace Rutx.Sincronizador.Security
                 throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminUsername y AdminPassword deben estar configurados en Produccion para el panel local.");
             }
 
+            // 3b. Contraseñas debiles o placeholder: rechazo SIEMPRE en Produccion,
+            // usando la politica central (min 8, no 'admin', no CHANGE_ME, no
+            // identica al usuario del panel). Reflejo exacto de WebPasswordPolicy
+            // compartido con el wizard/helper de instalacion.
+            if (!Rutx.Sincronizador.Shared.WebPasswordPolicy.EsValida(adminPass, adminUser, out var passError))
+            {
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: " + passError + " en Produccion.");
+            }
+
             // 4. Validacion TLS y Topologia para puertos expuestos
             var externalEnabled = configuration.GetValue<bool>("Network:ExternalApiEnabled");
             if (externalEnabled)
@@ -89,6 +98,73 @@ namespace Rutx.Sincronizador.Security
                 if (mode == "KestrelHttps" && configuration.GetSection("Kestrel:Endpoints:Https").Exists() == false)
                 {
                     throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: Modo KestrelHttps habilitado pero no se ha provisto configuracion de Kestrel:Endpoints:Https (falta certificado).");
+                }
+
+                // 4b. AllowedHosts estricto cuando la API externa (tunel) esta activa:
+                // obligatorio, sin '*', sin placeholders, con al menos un hostname
+                // publico y al menos un host local.
+                var allowedHosts = configuration["AllowedHosts"];
+                if (string.IsNullOrWhiteSpace(allowedHosts) || allowedHosts.Trim() == "*")
+                {
+                    throw new InvalidOperationException(
+                        "[SEGURIDAD] Arranque abortado: Network:ExternalApiEnabled activo exige AllowedHosts explicito " +
+                        "(hostname real de Cloudflare + localhost/127.0.0.1). Valor actual: '" +
+                        (allowedHosts ?? "(vacío)") + "'.");
+                }
+
+                var segmentos = allowedHosts
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .ToList();
+
+                if (segmentos.Count == 0)
+                {
+                    throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: AllowedHosts no contiene segmentos validos.");
+                }
+
+                foreach (var seg in segmentos)
+                {
+                    if (seg.Contains('<') || seg.Contains('>') ||
+                        seg.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase) ||
+                        seg.EndsWith("example.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            $"[SEGURIDAD] Arranque abortado: AllowedHosts contiene placeholder o valor no real ('{seg}') en Produccion.");
+                    }
+                }
+
+                var tieneHostnamePublico = segmentos.Any(s =>
+                    !s.Equals("localhost", StringComparison.OrdinalIgnoreCase) && s != "127.0.0.1");
+                var tieneHostLocal = segmentos.Any(s =>
+                    s.Equals("localhost", StringComparison.OrdinalIgnoreCase) || s == "127.0.0.1");
+
+                if (!tieneHostnamePublico || !tieneHostLocal)
+                {
+                    throw new InvalidOperationException(
+                        "[SEGURIDAD] Arranque abortado: AllowedHosts debe incluir el hostname real de Cloudflare " +
+                        "Y localhost o 127.0.0.1 (ejemplo: 'sync.cliente.com;localhost;127.0.0.1').");
+                }
+
+                // 4c. Cloudflare:PublicHostname es OBLIGATORIO con API externa activa y
+                // debe aparecer exactamente en AllowedHosts: valida contra el hostname
+                // real del tunel, no solo sintaxis. Se valida como FQDN real con la
+                // politica compartida (rechaza vacio, placeholder, IP, localhost).
+                var publicHostname = configuration["Cloudflare:PublicHostname"];
+                var publicSaneado = Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(publicHostname);
+                if (string.IsNullOrWhiteSpace(publicSaneado))
+                {
+                    throw new InvalidOperationException(
+                        "[SEGURIDAD] Arranque abortado: Network:ExternalApiEnabled activo exige Cloudflare:PublicHostname " +
+                        "con el hostname publico real del tunel (variable Cloudflare__PublicHostname).");
+                }
+                if (!Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.EsFqdnValido(publicSaneado, out var hostError))
+                {
+                    throw new InvalidOperationException(
+                        "[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname invalido - " + hostError);
+                }
+                if (!segmentos.Contains(publicSaneado, StringComparer.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname ('{publicSaneado}') debe estar incluido en AllowedHosts.");
                 }
             }
         }

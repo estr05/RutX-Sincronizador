@@ -1,0 +1,22 @@
+#!/bin/sh
+# ============================================================
+# Pre-commit hook: gate anti-secretos del Sincronizador RutX.
+# Activacion (una vez por clon):
+#   git config core.hooksPath githooks
+# ============================================================
+BASEDIR=$(git rev-parse --show-toplevel 2>/dev/null) || exit 1
+
+if command -v pwsh >/dev/null 2>&1; then
+    PWSH=pwsh
+else
+    PWSH=powershell
+fi
+
+"$PWSH" -NoProfile -ExecutionPolicy Bypass \
+    -File "$BASEDIR/Scripts/Invoke-SecretScan.ps1" || {
+    echo ""
+    echo "COMMIT BLOQUEADO por el gate anti-secretos."
+    echo "Corrige los hallazgos o usa 'git commit --no-verify' SOLO con"
+    echo "aprobacion explicita del responsable del repositorio."
+    exit 1
+}

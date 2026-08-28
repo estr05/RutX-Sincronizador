@@ -215,10 +215,14 @@ public class DashboardWebServiceFiltrosTests
     }
 
     [Fact]
-    public void VentanaSerie_Semanal_SinFechas_Ultimos7DiasDesdeHoy()
+    public void VentanaSerie_Semanal_SinFechas_DesdeElLunesComoLosKPIs()
     {
         var ventana = DashboardWebService.ResolverVentanaSerie(new ReportFilterQuery(), "semanal");
-        Assert.Equal(Hoy.AddDays(-6), ventana.Desde);  // HOY-6 a HOY inclusive = 7 días
+
+        // Desde 83e7df9 la serie semanal usa semana calendario (lunes->hoy),
+        // igual que los KPIs de Resumen. El contrato antiguo (hoy-6 -> hoy)
+        // quedo obsoleto; ver Docs/EVIDENCIA_FALLO_PREEXISTENTE_VENTANA_SEMANAL.md
+        Assert.Equal(DashboardWebService.LunesDe(Hoy), ventana.Desde);
         Assert.Equal(Hoy, ventana.Hasta);
     }
 

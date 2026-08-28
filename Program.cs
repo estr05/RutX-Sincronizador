@@ -80,6 +80,25 @@ var builder = WebApplication.CreateBuilder(args);
 // ContentRoot = directorio del exe (no depende de WorkingDirectory)
 builder.Environment.ContentRootPath = exeDir;
 
+// ----------------------------------------------------------------
+// Configuracion local fuera de Git (credenciales de desarrollo/demo).
+// appsettings.Local.json NUNCA se versiona (ver .gitignore); su plantilla
+// es appsettings.Local.example.json.
+//
+// PRECEDENCIA: los proveedores por defecto de CreateBuilder ya incluyen
+// variables de entorno y linea de comandos. Si agregaramos el JSON aqui
+// quedaria como ULTIMO proveedor y pisaria a ambos. Para garantizar que
+// Environment/CLI conservan la ultima palabra, se re-registran despues
+// del archivo local (en .NET gana el ULTIMO proveedor registrado).
+// Contrato verificado en Tests/Unit/ConfiguracionPrecedenciaTests.cs.
+// ----------------------------------------------------------------
+builder.Configuration.AddJsonFile(
+    Path.Combine(exeDir, "appsettings.Local.json"),
+    optional: true,
+    reloadOnChange: false);
+builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args);
+
 // Windows Service: detecta automaticamente si corre como servicio.
 // En modo consola (desarrollo) funciona igual, sin cambios.
 builder.Host.UseWindowsService(options =>
@@ -89,44 +108,37 @@ builder.Host.UseWindowsService(options =>
 
 // ----------------------------------------------------------------
 // Configuracion Topologica de Kestrel (Listeners)
+// Decision centralizada en KestrelTopology.ResolveListeners:
+//   - Development: 0.0.0.0:5047 (acceso LAN/Tailscale directo).
+//   - Production : 127.0.0.1:5047 (solo administracion local).
+//   - Con Network:ExternalApiEnabled=true se agrega el listener
+//     externo segun modo; ReverseProxy abre 127.0.0.1:5048 para el
+//     trafico exclusivo del tunel de Cloudflare.
 // ----------------------------------------------------------------
 builder.WebHost.ConfigureKestrel((context, options) =>
 {
-    // 1. Listener de la API y Panel Administrativo:
-    // Habilitado en AnyIP (0.0.0.0:5047) para permitir pruebas directas desde la App Móvil
-    // en la red Wi-Fi local (ej. 192.168.1.68), VPN Tailscale (100.71.116.89) y navegador local (localhost).
-    // NOTA: Para producción estricta con proxy reverso/Cloudflare Tunnel, se puede restringir a ListenLocalhost.
-    options.ListenAnyIP(5047);
+    var endpoints = Rutx.Sincronizador.KestrelTopology.ResolveListeners(
+        builder.Environment.IsProduction(),
+        context.Configuration.GetValue<bool>("Network:ExternalApiEnabled"),
+        context.Configuration["Network:ExternalApiMode"],
+        context.Configuration.GetValue<int>(
+            "Network:ExternalPort", Rutx.Sincronizador.KestrelTopology.PuertoExternoDefault));
 
-    // 2. Listener Remoto / API (deshabilitado por defecto)
-    var externalEnabled = context.Configuration.GetValue<bool>("Network:ExternalApiEnabled");
-    if (!externalEnabled) return;
-
-    var mode = context.Configuration["Network:ExternalApiMode"];
-    var externalPort = context.Configuration.GetValue<int>("Network:ExternalPort", 5048);
-
-    if (mode == "ReverseProxy")
+    foreach (var ep in endpoints)
     {
-        // Reverse proxy local termina el TLS y pasa el trafico por loopback
-        options.ListenLocalhost(externalPort);
-    }
-    else if (mode == "KestrelHttps")
-    {
-        // Kestrel gestiona el TLS directamente (Requiere certificado PFX configurado)
-        // La configuracion detallada del PFX y contrasena debe venir de appsettings (Kestrel:Endpoints:Https)
-        options.ListenAnyIP(externalPort, listenOptions =>
+        if (ep.UseHttps)
         {
-            listenOptions.UseHttps();
-        });
-    }
-    else if (mode == "VPN_Directo")
-    {
-        // Para despliegues VPN puramente de red privada sin terminacion SSL en la maquina
-        options.ListenAnyIP(externalPort);
-    }
-    else
-    {
-        throw new InvalidOperationException($"[SEGURIDAD] Network:ExternalApiMode no soportado o indefinido ('{mode}'). Opciones: ReverseProxy, KestrelHttps, VPN_Directo.");
+            // TLS gestionado por Kestrel (requiere Kestrel:Endpoints:Https con certificado PFX)
+            options.ListenAnyIP(ep.Port, listenOptions => listenOptions.UseHttps());
+        }
+        else if (ep.LoopbackOnly)
+        {
+            options.ListenLocalhost(ep.Port);
+        }
+        else
+        {
+            options.ListenAnyIP(ep.Port);
+        }
     }
 });
 

@@ -34,6 +34,7 @@ Desktop.ini
 
 # Salida de publicacion (generada por publicar.bat)
 publica/
+publish/
 
 # ===================================================================
 # Cloudflare Tunnel (secretos locales, JAMAS versionar)

@@ -216,11 +216,15 @@ proceso en 4 pasos:
 1. Haz clic en **Buscar BD…** y selecciona el archivo `.fdb` **de la BD del
    cliente** (ej. `C:\Microsip datos\SU_BD.fdb`).
 2. El asistente verifica la firma del archivo y solicitará usuario y contraseña.
-3. Resultado:
+3. En la columna derecha, escribe la **Contraseña Panel Web** (usuario fijo
+   `admin`). Debe tener **al menos 8 caracteres**; se pedirá el cambio al
+   primer acceso. Esta contraseña se guarda en `appsettings.Local.json` (nunca
+   en `appsettings.json`).
+4. Resultado:
    - 🟢 **Conexión OK** → haz clic en **Siguiente →**.
    - 🔴 **Fallo la conexión** → escribe el usuario y la contraseña reales de la
      BD del cliente y haz clic en **Probar conexión** hasta obtener el verde.
-4. Haz clic en **Siguiente →**.
+5. Haz clic en **Siguiente →**.
 
 > **[Captura de pantalla: asistente, paso 2 (BD y credenciales)]**
 
@@ -236,14 +240,22 @@ proceso en 4 pasos:
 
 ### Paso 3 — Instalar y auditar
 
-1. Haz clic en **▶ Instalar ahora**.
-2. El asistente copia los ejecutables a la carpeta de instalación, genera la
+1. (Opcional) Marca **Habilitar acceso remoto público (Cloudflare Tunnel)** y
+   escribe el **Hostname público** — un FQDN DNS real del dominio del cliente
+   (ej. `sync.cliente.com`). No admiten IPs, `localhost` ni el placeholder
+   `sync.ejemplo.com`. Sin él no se activa el acceso remoto.
+2. Haz clic en **▶ Instalar ahora**.
+3. El asistente copia los ejecutables a la carpeta de instalación, genera la
    configuración con la BD elegida y ejecuta la **auditoría de compatibilidad**
    en vivo contra **esa** BD (solo lectura).
-3. Al terminar muestra el conteo: 🔴 faltantes · 🟡 avisos · 🟢 ok.
-4. Haz clic en **Siguiente →**.
+4. Al terminar muestra el conteo: 🔴 faltantes · 🟡 avisos · 🟢 ok.
+5. Haz clic en **Siguiente →**.
 
 > **[Captura de pantalla: asistente, paso 3 (instalación y auditoría)]**
+
+> Cuando se activa el acceso remoto, el sincronizador arranca con un listener
+> **solo en `127.0.0.1:5048`** para el túnel de Cloudflare; el puerto **5047** de
+> administración nunca se publica. Túnel: `<HOSTNAME>` → `http://127.0.0.1:5048`.
 
 > **Si el puerto 5047 está ocupado**: el asistente avisa y omite la auditoría
 > automática. Ejecútala después desde el panel web (sección 5).

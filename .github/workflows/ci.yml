@@ -8,9 +8,12 @@ name: "Sincronizador CI"
 
 on:
   push:
-    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel"]
+    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel", "review/cloudflare-installer"]
   pull_request:
-    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel"]
+    # pull_request.branches filtra la rama DESTINO del PR. demo es el destino de
+    # integracion; el PR review/cloudflare-installer -> demo dispara todo el pipeline.
+    # El segundo PR demo -> dev (ya cubierto por main/dev) se validara aparte.
+    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel", "demo"]
 
 jobs:
   secret-scan:
@@ -47,10 +50,10 @@ jobs:
           dotnet-version: "10.x"
 
       - name: Restore dependencies
-        run: dotnet restore Rutx.Sincronizador.csproj
+        run: dotnet restore rutx-sincronizador.sln
 
       - name: Build (Release)
-        run: dotnet build Rutx.Sincronizador.csproj --configuration Release --no-restore
+        run: dotnet build rutx-sincronizador.sln --configuration Release --no-restore
 
       - name: Secret scan (Invoke-SecretScan.ps1 - gate propio)
         shell: pwsh

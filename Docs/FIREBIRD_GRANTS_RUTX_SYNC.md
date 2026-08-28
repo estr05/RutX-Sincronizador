@@ -99,8 +99,21 @@ Ejecutada por `Deploy/Firebird/FaseB_03_matriz_permisos.ps1` conectando como
   privilegios amplios automáticamente. Cualquier grant adicional exige tu
   confirmación explícita.
 
+## Resultado fase B (2026-08-24, copia E2E localhost:3051)
+
+- Usuario `RUTX_SYNC` creado en la instancia E2E (password efímera DPAPI-local).
+- Grants finales: SQL versionado + 72 grants de la cadena completa de
+  triggers Microsip (29 EXECUTE procs, 27 SELECT, 7 INSERT, 8 UPDATE,
+  USAGE generador `ID_LIGAS_DOCTOS`) + 14 `USAGE ON EXCEPTION`.
+  SIN DELETE, sin ADMIN ROLE, sin RDB$*, sin DDL.
+- Matriz: SELECT 26/26 OK; negativos (DDL, DELETE directo, fuera de
+  alcance, catálogos, auto-grant) 8/8 DENEGADOS.
+- Prueba corta con datos marcados `RUTX-E2E`: venta + partida OK,
+  cobranza OK, limpieza posterior con 0 residuos.
+
 ## Checklist post-aplicación (en copia)
 
+- [x] Login SQL de `RUTX_SYNC` y SELECT sobre catálogos/documentos OK.
 - [ ] Login móvil OK con credenciales del vendedor.
 - [ ] `GET /api/v1/routes/sync` descarga catálogos completos.
 - [ ] `POST /api/v1/pv/ventas` genera docto + folio + inventario

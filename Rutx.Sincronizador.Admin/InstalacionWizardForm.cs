@@ -60,11 +60,13 @@ public class InstalacionWizardForm : Form
     private TextBox _txtUsuario = null!;
     private TextBox _txtPassword = null!;
     private TextBox _txtWebPassword = null!;
-    private string _webPassword = "admin";
+    private string _webPassword = "";
     private Label _lblConexion = null!;
     private Button _btnProbar = null!;
     // Paso 3
     private CheckBox _chkAccesoMovil = null!;
+    private TextBox _txtHostname = null!;
+    private Label _lblHostname = null!;
     private RichTextBox _txtProgreso = null!;
     private Button _btnInstalar = null!;
     private Label _lblContadores = null!;
@@ -385,7 +387,7 @@ public class InstalacionWizardForm : Form
         p.Controls.Add(lblWebPass);
         _txtWebPassword = new TextBox
         {
-            Text = "Admin1234!",
+            Text = "",
             Location = new Point(320, 215),
             Width = 280,
             Font = new Font("Cascadia Code", 10F),
@@ -435,7 +437,7 @@ public class InstalacionWizardForm : Form
             MaximumSize = new Size(520, 0),
             Font = new Font("Figtree", 8.5F, FontStyle.Regular),
             ForeColor = TextoMuted,
-            Text = "El panel web se creará con usuario 'admin' y la contraseña indicada (se pedirá cambio al primer acceso)."
+            Text = "El panel web se creará con usuario 'admin' y la contraseña indicada (mín. 8 caracteres; se pedirá cambio al primer acceso)."
         });
         return p;
     }
@@ -455,22 +457,37 @@ public class InstalacionWizardForm : Form
 
         _chkAccesoMovil = new CheckBox
         {
-            Text = "Permitir conexiones desde otros equipos en la red local",
+            Text = "Habilitar acceso remoto público (Cloudflare Tunnel)",
             Location = new Point(0, 140),
             AutoSize = true,
             Font = new Font("Figtree", 10F, FontStyle.Regular),
             ForeColor = AzulMarino,
             Cursor = Cursors.Hand
         };
+        _chkAccesoMovil.CheckedChanged += (_, _) => ActualizarHostnameVisibilidad();
         p.Controls.Add(_chkAccesoMovil);
 
-        _spinnerInstalar.Location = new Point(0, 172);
+        _lblHostname = Lbl("Hostname público (FQDN de Cloudflare, ej: sync.cliente.com)", 168);
+        p.Controls.Add(_lblHostname);
+        _txtHostname = new TextBox
+        {
+            Text = "",
+            Location = new Point(0, 188),
+            Width = 560,
+            Font = new Font("Cascadia Code", 10F),
+            BorderStyle = BorderStyle.FixedSingle
+        };
+        p.Controls.Add(_txtHostname);
+
+        ActualizarHostnameVisibilidad();
+
+        _spinnerInstalar.Location = new Point(0, 228);
         _spinnerInstalar.Visible = false;
         p.Controls.Add(_spinnerInstalar);
 
         _lblEstadoInstalacion = new Label
         {
-            Location = new Point(30, 170),
+            Location = new Point(30, 226),
             AutoSize = true,
             Font = new Font("Figtree", 10F, FontStyle.Bold),
             ForeColor = AzulMarino,
@@ -481,7 +498,7 @@ public class InstalacionWizardForm : Form
 
         _lblContadores = new Label
         {
-            Location = new Point(0, 168),
+            Location = new Point(0, 224),
             AutoSize = true,
             Font = new Font("Cascadia Code", 13F, FontStyle.Bold),
             ForeColor = TextoMuted,
@@ -491,7 +508,7 @@ public class InstalacionWizardForm : Form
 
         _lblSugerencia = new Label
         {
-            Location = new Point(0, 198),
+            Location = new Point(0, 254),
             AutoSize = true,
             Font = new Font("Figtree", 9.5F, FontStyle.Regular),
             ForeColor = Rojo,
@@ -502,7 +519,7 @@ public class InstalacionWizardForm : Form
 
         _txtProgreso = new RichTextBox
         {
-            Location = new Point(0, 220),
+            Location = new Point(0, 276),
             Size = new Size(770, 180),
             BackColor = ConsolaFondo,
             ForeColor = ConsolaTexto,
@@ -519,8 +536,8 @@ public class InstalacionWizardForm : Form
         // su parte inferior quedaba tapada por el pie.
         p.Layout += (_, _) =>
         {
-            var alto = Math.Max(120, p.ClientSize.Height - 224);
-            _txtProgreso.SetBounds(0, 220, Math.Max(p.ClientSize.Width, 300), alto);
+            var alto = Math.Max(120, p.ClientSize.Height - 280);
+            _txtProgreso.SetBounds(0, 276, Math.Max(p.ClientSize.Width, 300), alto);
         };
         return p;
     }
@@ -602,6 +619,17 @@ public class InstalacionWizardForm : Form
             _lblResumen.Text = ResumenTexto();
     }
 
+    private void ActualizarHostnameVisibilidad()
+    {
+        var visible = _chkAccesoMovil.Checked;
+        if (_lblHostname != null) _lblHostname.Visible = visible;
+        if (_txtHostname != null)
+        {
+            _txtHostname.Visible = visible;
+            if (!visible) _txtHostname.Clear();
+        }
+    }
+
     private static string nombresPaso(int i) => new[] { "Ubicación", "BD y credenciales", "Instalar y auditar", "Finalizar" }[i];
 
     private void Avanzar()
@@ -637,14 +665,15 @@ public class InstalacionWizardForm : Form
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                var webPass = _txtWebPassword.Text.Trim();
-                if (webPass.Length < 8)
+                var webPass = _txtWebPassword.Text;
+                var panelUser = Rutx.Sincronizador.Shared.WebPasswordPolicy.UsuarioPanelDefault;
+                if (!Rutx.Sincronizador.Shared.WebPasswordPolicy.EsValida(webPass, panelUser, out var passError))
                 {
-                    MessageBox.Show("La contraseña del panel web debe tener al menos 8 caracteres.", "RUTX · Instalación",
+                    MessageBox.Show(passError, "RUTX · Instalación",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-                _webPassword = webPass;
+                _webPassword = webPass.Trim();
                 IrAPaso(3);
                 break;
 
@@ -759,15 +788,23 @@ public class InstalacionWizardForm : Form
                 throw new InvalidOperationException("El puerto 5047 está ocupado. Cierra la instancia anterior y reintenta.");
             }
 
-            // 2) Instalar (estructura + copia + appsettings) sin marcador
+            // 2) Instalar (estructura + copia + appsettings) sin marcador.
+            //    El hostname se valida aqui (ademas del helper) para abortar
+            //    con un mensaje claro antes de tocar el disco si falta.
             Log("Creando estructura y copiando ejecutables…", "inf");
             bool mobileAcc = _chkAccesoMovil.Checked;
+            var hostnameSaneado = Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(_txtHostname.Text.Trim());
+            if (mobileAcc &&
+                !Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.EsFqdnValido(hostnameSaneado, out var hostError))
+            {
+                throw new InvalidOperationException(hostError);
+            }
             infoGenerada = await Task.Run(() =>
-                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc, _webPassword));
+                InstalacionHelper.Instalar(_raiz, _rutaFdb, _usuario, _password, _carpetaFuenteSync, mobileAcc, _webPassword, hostnameSaneado));
 
             Log("Ejecutables copiados en: " + _raiz, "inf");
             Log("appsettings.json generado con tu BD (" + _rutaFdb + ")", "inf");
-            if (mobileAcc) Log("Configurado para permitir conexiones desde la red local (Kestrel externa).", "inf");
+            if (mobileAcc) Log("Configurado acceso remoto publico via Cloudflare Tunnel (listener 127.0.0.1:5048).", "inf");
 
             // 3) Auditar en vivo (ya que verificamos puerto libre)
             Log("Arrancando el sincronizador para validación y auditoría…", "inf");
@@ -818,7 +855,11 @@ public class InstalacionWizardForm : Form
                 ? $"  🔴 {_nFallos} faltantes    🟡 {_nAvisos} avisos    🟢 {_nOk} ok"
                 : "  Auditoría fallida — desde el panel web (⚙ Conf) se re-evalúa al abrir.";
             _lblSugerencia.Visible = _auditoriaOk && _nFallos > 0;
-            _btnSiguiente.Enabled = true;
+
+            Log("Instalación completada. Cerrando asistente…", "inf");
+            await Task.Delay(1000);
+            DialogResult = DialogResult.OK;
+            Close();
         }
         catch (Exception ex)
         {

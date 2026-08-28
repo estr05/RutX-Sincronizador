@@ -81,18 +81,38 @@ public class ProductionConfigurationValidatorTests
     public void AdminPassword_Igual_Al_Usuario_Lanza_Incluso_Sin_External()
     {
         var d = Base();
-        d["WebAuth:AdminPassword"] = AdminUser;
+        d["WebAuth:AdminUsername"] = "panelsuper";
+        d["WebAuth:AdminPassword"] = "panelsuper";
         d["Network:ExternalApiEnabled"] = "false";
         Assert.Contains("identica al usuario", Error(Config(d)).Message);
     }
 
     [Fact]
-    public void AdminPassword_Corta_Menor_A_12_Lanza_Incluso_Sin_External()
+    public void AdminPassword_Corta_Menor_A_8_Lanza_Incluso_Sin_External()
     {
         var d = Base();
-        d["WebAuth:AdminPassword"] = "Corta123!";
+        d["WebAuth:AdminPassword"] = "Corta7!";
         d["Network:ExternalApiEnabled"] = "false";
-        Assert.Contains("12 caracteres", Error(Config(d)).Message);
+        Assert.Contains("8 caracteres", Error(Config(d)).Message);
+    }
+
+    [Fact]
+    public void AdminPassword_Exactamente_8_No_Admin_Pasa()
+    {
+        var d = Base();
+        d["WebAuth:AdminPassword"] = "Clave8x!";
+        d["Network:ExternalApiEnabled"] = "false";
+        var ex = Record.Exception(() => Rutx.Sincronizador.Security.ProductionConfigurationValidator.Validate(Config(d), EntornoProduccion()));
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void AdminPassword_Contiene_ChangeMe_Lanza()
+    {
+        var d = Base();
+        d["WebAuth:AdminPassword"] = "ClaveCHANGE_ME!";
+        d["Network:ExternalApiEnabled"] = "false";
+        Assert.Contains("CHANGE_ME", Error(Config(d)).Message);
     }
 
     [Fact]
@@ -176,5 +196,19 @@ public class ProductionConfigurationValidatorTests
     {
         Assert.Contains("placeholder",
             Error(Config(External("<sync.example.com>;localhost;127.0.0.1", "<sync.example.com>"))).Message);
+    }
+
+    [Fact]
+    public void External_PublicHostname_Es_IP_Lanza()
+    {
+        var ex = Error(Config(External("203.0.113.10;localhost;127.0.0.1", "203.0.113.10")));
+        Assert.Contains("nombre de dominio publico real", ex.Message);
+    }
+
+    [Fact]
+    public void External_PublicHostname_Es_Localhost_Lanza()
+    {
+        var ex = Error(Config(External("sync.cliente.com;localhost;127.0.0.1", "localhost")));
+        Assert.Contains("nombre de dominio publico real", ex.Message);
     }
 }

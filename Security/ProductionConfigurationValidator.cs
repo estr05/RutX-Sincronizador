@@ -76,22 +76,12 @@ namespace Rutx.Sincronizador.Security
             }
 
             // 3b. Contraseñas debiles o placeholder: rechazo SIEMPRE en Produccion,
-            // independientemente de si la API externa (Cloudflare Tunnel) esta activa.
-            if (string.Equals(adminUser, adminPass, StringComparison.OrdinalIgnoreCase))
+            // usando la politica central (min 8, no 'admin', no CHANGE_ME, no
+            // identica al usuario del panel). Reflejo exacto de WebPasswordPolicy
+            // compartido con el wizard/helper de instalacion.
+            if (!Rutx.Sincronizador.Shared.WebPasswordPolicy.EsValida(adminPass, adminUser, out var passError))
             {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminPassword no puede ser identica al usuario en Produccion.");
-            }
-            if (adminPass.Equals("admin", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminPassword no puede ser 'admin' en Produccion.");
-            }
-            if (adminPass.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminPassword contiene el placeholder CHANGE_ME en Produccion.");
-            }
-            if (adminPass.Length < 12)
-            {
-                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: WebAuth:AdminPassword debe tener al menos 12 caracteres en Produccion.");
+                throw new InvalidOperationException("[SEGURIDAD] Arranque abortado: " + passError + " en Produccion.");
             }
 
             // 4. Validacion TLS y Topologia para puertos expuestos
@@ -156,24 +146,25 @@ namespace Rutx.Sincronizador.Security
 
                 // 4c. Cloudflare:PublicHostname es OBLIGATORIO con API externa activa y
                 // debe aparecer exactamente en AllowedHosts: valida contra el hostname
-                // real del tunel, no solo sintaxis.
+                // real del tunel, no solo sintaxis. Se valida como FQDN real con la
+                // politica compartida (rechaza vacio, placeholder, IP, localhost).
                 var publicHostname = configuration["Cloudflare:PublicHostname"];
-                if (string.IsNullOrWhiteSpace(publicHostname))
+                var publicSaneado = Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(publicHostname);
+                if (string.IsNullOrWhiteSpace(publicSaneado))
                 {
                     throw new InvalidOperationException(
                         "[SEGURIDAD] Arranque abortado: Network:ExternalApiEnabled activo exige Cloudflare:PublicHostname " +
                         "con el hostname publico real del tunel (variable Cloudflare__PublicHostname).");
                 }
-                if (publicHostname.Contains('<') || publicHostname.Contains('>') ||
-                    publicHostname.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
+                if (!Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.EsFqdnValido(publicSaneado, out var hostError))
                 {
                     throw new InvalidOperationException(
-                        "[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname contiene un placeholder; configure el hostname real.");
+                        "[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname invalido - " + hostError);
                 }
-                if (!segmentos.Contains(publicHostname.Trim(), StringComparer.OrdinalIgnoreCase))
+                if (!segmentos.Contains(publicSaneado, StringComparer.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException(
-                        $"[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname ('{publicHostname.Trim()}') debe estar incluido en AllowedHosts.");
+                        $"[SEGURIDAD] Arranque abortado: Cloudflare:PublicHostname ('{publicSaneado}') debe estar incluido en AllowedHosts.");
                 }
             }
         }

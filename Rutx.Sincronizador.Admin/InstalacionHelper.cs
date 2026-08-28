@@ -65,7 +65,7 @@ public static class InstalacionHelper
     /// wizard lo muestre y no deje una instalacion a medias sin avisar).
     /// </summary>
     public static InstalacionInfo Instalar(string raiz, string rutaFdb, string usuario, string password,
-        string carpetaFuenteSync, bool mobileRemoteAccess = false, string webPassword = "admin")
+        string carpetaFuenteSync, bool mobileRemoteAccess = false, string webPassword = "", string? publicHostname = null)
     {
         // ---- 1. Validar origen y destino ----
         if (string.IsNullOrWhiteSpace(carpetaFuenteSync) || !Directory.Exists(carpetaFuenteSync))
@@ -80,6 +80,20 @@ public static class InstalacionHelper
         raiz = Path.GetFullPath(raiz.Trim());
         if (string.IsNullOrWhiteSpace(Path.GetPathRoot(raiz)))
             throw new InvalidOperationException("La ruta de instalacion no es valida: " + raiz);
+
+        // ---- 1b. Validacion previa de credenciales y hostname (SIN efectos
+        // secundarios): se comprueba TODO antes de crear directorios, aplicar
+        // ACLs o copiar archivos, para no dejar una instalacion a medias. ----
+        var panelUser = Rutx.Sincronizador.Shared.WebPasswordPolicy.UsuarioPanelDefault;
+        if (!Rutx.Sincronizador.Shared.WebPasswordPolicy.EsValida(webPassword, panelUser, out var passError))
+            throw new InvalidOperationException(passError);
+
+        var hostnameSaneado = Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(publicHostname);
+        if (mobileRemoteAccess &&
+            !Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.EsFqdnValido(hostnameSaneado, out var hostError))
+        {
+            throw new InvalidOperationException(hostError);
+        }
 
         // ---- 2. Pre-check: Matar proceso si el ejecutable destino esta bloqueado ----
         var exeDestino = Path.Combine(raiz, "Rutx.Sincronizador.exe");
@@ -142,7 +156,12 @@ public static class InstalacionHelper
                 "No se encontro la plantilla appsettings.json en: " + plantilla);
 
         var rutaAppSettings = Path.Combine(raiz, "appsettings.json");
-        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, password, mobileRemoteAccess, webPassword);
+        EscribirAppSettings(plantilla, rutaAppSettings, rutaFdb, usuario, password,
+            mobileRemoteAccess, hostnameSaneado);
+
+        // ---- 7b. Generar appsettings.Local.json con la contraseña del panel web ----
+        var rutaAppSettingsLocal = Path.Combine(raiz, "appsettings.Local.json");
+        EscribirAppSettingsLocal(rutaAppSettingsLocal, webPassword);
 
         // ---- 8. Retornar informacion de instalacion (el marcador se escribe en el wizard) ----
         var info = new InstalacionInfo
@@ -362,15 +381,32 @@ public static class InstalacionHelper
     /// <summary>
     /// Genera appsettings.json en la raiz de instalacion con las credenciales verificadas
     /// y aplica ACLs restrictivas al archivo generado.
+    /// La contraseña del panel web (WebAuth:AdminPassword) NO se escribe aqui:
+    /// va exclusivamente en appsettings.Local.json.
     /// </summary>
     private static void EscribirAppSettings(string plantilla, string destino,
-        string rutaFdb, string usuario, string password, bool mobileRemoteAccess = false, string webPassword = "admin")
+        string rutaFdb, string usuario, string password,
+        bool mobileRemoteAccess = false, string? publicHostname = null)
     {
         var nodo = JsonNode.Parse(File.ReadAllText(plantilla))
                    ?? throw new InvalidOperationException("La plantilla appsettings.json no es JSON valido.");
 
-        var obj = nodo.AsObject();
+        ConstruirAppSettingsJson(nodo.AsObject(), rutaFdb, usuario, password, mobileRemoteAccess, publicHostname);
 
+        File.WriteAllText(destino, nodo.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AplicarAclAppSettings(destino);
+    }
+
+    /// <summary>
+    /// Muta un JsonObject de plantilla aplicando la configuracion de la
+    /// instalacion. Es puro (no escribe archivos ni aplica ACLs) para poder
+    /// probarse de forma unitaria con directorios temporales.
+    /// Exposed as internal para los tests de Rutx.Sincronizador.Tests.
+    /// </summary>
+    internal static void ConstruirAppSettingsJson(JsonObject obj,
+        string rutaFdb, string usuario, string password,
+        bool mobileRemoteAccess = false, string? publicHostname = null)
+    {
         if (!obj.ContainsKey("ConnectionStrings") || obj["ConnectionStrings"] is not JsonObject conexiones)
         {
             conexiones = new JsonObject();
@@ -411,7 +447,7 @@ public static class InstalacionHelper
         }
         else
         {
-            jwtObj = (JsonObject)obj["Jwt"];
+            jwtObj = (JsonObject)obj["Jwt"]!;
         }
         var keyBytes = new byte[64];
         System.Security.Cryptography.RandomNumberGenerator.Fill(keyBytes);
@@ -426,10 +462,10 @@ public static class InstalacionHelper
         }
         else
         {
-            webAuthObj = (JsonObject)obj["WebAuth"];
+            webAuthObj = (JsonObject)obj["WebAuth"]!;
         }
         webAuthObj["AdminUsername"] = "admin";
-        webAuthObj["AdminPassword"] = string.IsNullOrWhiteSpace(webPassword) ? "admin" : webPassword;
+        webAuthObj.Remove("AdminPassword");
 
         if (mobileRemoteAccess)
         {
@@ -441,10 +477,23 @@ public static class InstalacionHelper
             network["ExternalApiEnabled"] = true;
             network["ExternalPort"] = 5048;
             network["ExternalApiMode"] = "ReverseProxy";
-        }
 
-        File.WriteAllText(destino, nodo.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-        AplicarAclAppSettings(destino);
+            var hostname = Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(publicHostname);
+            obj["AllowedHosts"] = $"{hostname};localhost;127.0.0.1";
+
+            if (!obj.ContainsKey("Cloudflare") || obj["Cloudflare"] is not JsonObject cloudflare)
+            {
+                cloudflare = new JsonObject();
+                obj["Cloudflare"] = cloudflare;
+            }
+            cloudflare["PublicHostname"] = hostname;
+        }
+        else
+        {
+            obj.Remove("Network");
+            obj.Remove("Cloudflare");
+            obj["AllowedHosts"] = "*";
+        }
     }
 
     private static void AplicarAclAppSettings(string rutaArchivo)
@@ -478,6 +527,31 @@ public static class InstalacionHelper
             Console.WriteLine($"[AVISO] No se pudieron restringir ACLs de appsettings.json: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// Genera appsettings.Local.json con la contraseña del panel web.
+    /// Este archivo es sensible y NO se incluye en Git ni en el ZIP de entrega.
+    /// La contraseña se guarda SOLO aqui (nunca en appsettings.json).
+    /// </summary>
+    private static void EscribirAppSettingsLocal(string destino, string webPassword)
+    {
+        var local = new JsonObject();
+        var webAuth = new JsonObject();
+        webAuth["AdminPassword"] = webPassword;
+        local["WebAuth"] = webAuth;
+
+        File.WriteAllText(destino, local.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AplicarAclAppSettings(destino);
+    }
+
+    /// <summary>
+    /// Limpia un hostname eliminando protocolo (https://, http://), puertos,
+    /// rutas y barras finales. Devuelve solo el dominio (ej: "sync.cliente.com").
+    /// Si el valor es vacío o nulo, devuelve "" (ya NO devuelve un placeholder).
+    /// Delega en CloudflareHostnamePolicy para mantener una unica fuente de verdad.
+    /// </summary>
+    public static string SanitizarHostname(string? raw)
+        => Rutx.Sincronizador.Shared.CloudflareHostnamePolicy.Sanitizar(raw);
 
     /// <summary>
     /// Crea un acceso directo (.lnk) en el Escritorio del usuario apuntando al exe indicado.

@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Rutx.Sincronizador.csproj" />
     <ProjectReference Include="..\Rutx.Sincronizador.Admin\Rutx.Sincronizador.Admin.csproj" />
+    <ProjectReference Include="..\Rutx.Sincronizador.Shared\Rutx.Sincronizador.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

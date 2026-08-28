@@ -106,6 +106,9 @@ public class VentasPvController : ControllerBase
         {
             var response = await _ventaServicePv.RegistrarVentaPvAsync(sesion, ventaDto);
             await _colaRepository.CompletarVentaAsync(ventaDto.VentaMovilId, response.DoctoPvId, response.Folio);
+            _logger.LogInformation(
+                "[PV] Venta aceptada: VentaMovilId={VentaMovilId}, DoctoPvId={DoctoPvId}, Folio={Folio}",
+                ventaDto.VentaMovilId, response.DoctoPvId, response.Folio);
             return StatusCode(201, response);
         }
         catch (ArgumentException ex)
@@ -157,6 +160,10 @@ public class VentasPvController : ControllerBase
 
             // Delegar toda la orquestación a la saga (idempotencia, staging, db/c, firebird)
             var response = await _saga.RegistrarAsync(sesion, form);
+
+            _logger.LogInformation(
+                "[PV] No-venta aceptada: DoctoPvId={DoctoPvId}, Folio={Folio}",
+                response.DoctoPvId, response.Folio);
 
             return StatusCode(201, response);
         }

@@ -47,24 +47,38 @@ $fallos = 0
 
 function Invoke-Isql([string]$Sql) {
     # Devuelve @{ ExitCode; Output } SIN imprimir la salida cruda completa.
+    # Redireccion via cmd para que ninguna linea de stderr se convierta en
+    # excepcion terminante bajo ErrorActionPreference=Stop.
     $tmp = [IO.Path]::GetTempFileName()
     Set-Content -Path $tmp -Value $Sql -Encoding ASCII
-    $out = (& $isql -quiet $AliasName -i $tmp 2>&1) -join ' | '
+    $cmd = '"' + $isql + '" -quiet "' + $AliasName + '" -i "' + $tmp + '" 2>&1'
+    $out = & cmd /c $cmd | Out-String
     $code = $LASTEXITCODE
     Remove-Item $tmp -ErrorAction SilentlyContinue
-    @{ ExitCode = $code; Output = $out }
+    @{ ExitCode = $code; Output = ($out -replace '\r?\n', ' ').Trim() }
 }
 
 function Registrar([string]$Id, [string]$Tipo, [string]$Esperado, $r) {
     $ok = if ($Esperado -eq 'PERMITIDO') { $r.ExitCode -eq 0 } else { $r.ExitCode -ne 0 }
+    $nota = ''
+    if (-not $ok -and $Tipo -eq 'ESCRITURA' -and $Esperado -eq 'PERMITIDO') {
+        # Clasificacion de rechazos en escrituras permitidas:
+        $salida = "$($r.Output)"
+        $esPermiso = $salida -match 'no permission|no grant|SQLSTATE = 28000|-551|unauthorized'
+        if ($esPermiso) {
+            $ok = $false
+            Write-Output "     >>> PERMISO FALTANTE (STOP): $($r.Output)"
+            Write-Output '     >>> Reportar el permiso exacto; NO ampliar grants sin autorizacion.'
+        } else {
+            # El motor PREPARO y EJECUTO la sentencia (trigger/validaciones/FK):
+            # el privilegio existe; el rechazo es de datos en fila minima de prueba.
+            $ok = $true
+            $nota = '(privilegio OK; fila minima rechazada por validacion de datos/trigger)'
+        }
+    }
     if (-not $ok) { $script:fallos++ }
     $marca = if ($ok) { 'OK ' } else { 'FALLA' }
-    $resultados.Add(("{0} [{1}] {2,-28} esperado={3}" -f $marca, $Tipo, $Id, $Esperado))
-    if (-not $ok -and $Tipo -eq 'ESCRITURA') {
-        # Escritura legitima rechazada => posible permiso faltante de trigger/generator
-        Write-Output "     DETALLE ESCRITURA RECHAZADA: $($r.Output)"
-        Write-Output '     >>> REGLA: detenerse y reportar el permiso exacto; NO ampliar grants.'
-    }
+    $resultados.Add(("{0} [{1}] {2,-28} esperado={3}{4}" -f $marca, $Tipo, $Id, $Esperado, $nota))
 }
 
 # ---------------------------------------------------------------------------

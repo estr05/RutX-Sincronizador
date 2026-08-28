@@ -18,4 +18,16 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.11" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rutx.Sincronizador.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Clases de politica (password del panel + hostname Cloudflare) compartidas
+         con la API. Se referencian desde un proyecto net10.0 aparte para NO
+         acoplar el WinExe Admin a la aplicacion Web (evita contaminar el
+         output con wwwroot/contenido de ASP.NET Core). -->
+    <ProjectReference Include="..\Rutx.Sincronizador.Shared\Rutx.Sincronizador.Shared.csproj" />
+  </ItemGroup>
+
 </Project>

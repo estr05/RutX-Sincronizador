@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rutx.Sincronizador.Tests", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rutx.Sincronizador.Admin", "Rutx.Sincronizador.Admin\Rutx.Sincronizador.Admin.csproj", "{F4F8BC76-A996-4755-A47E-A70B030A0111}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rutx.Sincronizador.Shared", "Rutx.Sincronizador.Shared\Rutx.Sincronizador.Shared.csproj", "{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{F4F8BC76-A996-4755-A47E-A70B030A0111}.Release|x64.Build.0 = Release|Any CPU
 		{F4F8BC76-A996-4755-A47E-A70B030A0111}.Release|x86.ActiveCfg = Release|Any CPU
 		{F4F8BC76-A996-4755-A47E-A70B030A0111}.Release|x86.Build.0 = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|x64.Build.0 = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Debug|x86.Build.0 = Debug|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|x64.ActiveCfg = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|x64.Build.0 = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|x86.ActiveCfg = Release|Any CPU
+		{A6B18B47-1BB7-44F3-B4DC-2458A5EC6E08}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

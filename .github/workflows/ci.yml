@@ -1,6 +1,6 @@
 # ============================================================
 # CI — RutX-Sincronizador
-# Ejecuta en cada push y PR hacia main y las ramas de integración.
+# Ejecuta en cada push (incluye demo: CI post-merge) y PR hacia main y las ramas de integración.
 # Pasos: secret-scan (gitleaks) -> restore → build -> gate secretos
 #        propio -> unit tests (windows)
 # ============================================================
@@ -8,7 +8,9 @@ name: "Sincronizador CI"
 
 on:
   push:
-    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel", "review/cloudflare-installer"]
+    # demo se incluye para CI post-merge: tras fusionar review/cloudflare-installer
+    # -> demo, el workflow corre de nuevo sobre la rama destino demo.
+    branches: ["main", "fix/sprint4-secrets-firebird", "cloudflare-tunnel", "review/cloudflare-installer", "demo"]
   pull_request:
     # pull_request.branches filtra la rama DESTINO del PR. demo es el destino de
     # integracion; el PR review/cloudflare-installer -> demo dispara todo el pipeline.

@@ -32,8 +32,8 @@ public class WebSqliteMigratorTests
 
         var version = await migrator.ApplyAsync();
 
-        Assert.Equal(6, version);
-        Assert.Equal(6, await migrator.VersionVigenteAsync());
+        Assert.Equal(7, version);
+        Assert.Equal(7, await migrator.VersionVigenteAsync());
 
         await using var conn = new SqliteConnection(Conectar(db));
         await conn.OpenAsync();
@@ -74,7 +74,7 @@ public class WebSqliteMigratorTests
         await conn.OpenAsync();
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM schema_version;";
-        Assert.Equal(6L, await cmd.ExecuteScalarAsync());
+        Assert.Equal(7L, await cmd.ExecuteScalarAsync());
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class WebSqliteMigratorTests
 
         var migrator = new WebSqliteMigrator(Conectar(db), logger: NullLogger<WebSqliteMigrator>.Instance);
         var version = await migrator.ApplyAsync();
-        Assert.Equal(6, version);
+        Assert.Equal(7, version);
 
         await using var conn2 = new SqliteConnection(Conectar(db));
         await conn2.OpenAsync();

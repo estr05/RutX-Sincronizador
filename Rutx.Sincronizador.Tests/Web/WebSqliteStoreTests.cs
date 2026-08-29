@@ -39,8 +39,8 @@ public class WebSqliteStoreTests
     {
         var (store, _) = CrearStore();
         var version = await store.EnsureSchemaAsync();
-        Assert.Equal(6, version);
-        Assert.Equal(6, await store.SchemaVersionAsync());
+        Assert.Equal(7, version);
+        Assert.Equal(7, await store.SchemaVersionAsync());
     }
 
     [Fact]

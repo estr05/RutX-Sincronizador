@@ -17,6 +17,14 @@ namespace Rutx.Sincronizador.Data.Web;
 ///          con estados e idempotencia por venta_movil_id UNIQUE) y
 ///          rutx_media_files (metadata de archivos multimedia con
 ///          staging, promoción y hash SHA-256).
+///   v005 — consolidación de cola offline: rutx_cola_operaciones/rutx_ventas_sincronizadas.
+///   v006 — soporte de reintentos para saga: columnas payload_json/session_json.
+///   v007 — telemetría, identidad de dispositivos y eventos operativos:
+///          rutx_contracts, rutx_customer_refs, rutx_mobile_devices,
+///          rutx_device_assignments, rutx_seller_events, rutx_route_closures,
+///          rutx_notification_recipients/deliveries/receipts,
+///          rutx_route_assignments; ALTER aditivos en rutx_seller_sessions
+///          y rutx_seller_locations.
 ///
 /// Convenciones:
 ///   - Fechas: TEXT ISO 8601 (contrato v2 §4).
@@ -33,6 +41,7 @@ public static class WebMigrations
         new(4, "saga-no-ventas-y-media",          SagaNoVentasYMedia),
         new(5, "consolidacion-cola-offline",      ConsolidacionColaOffline),
         new(6, "soporte-reintentos-saga",         SoporteReintentosSaga),
+        new(7, "telemetria-identidad-y-eventos",  TelemetriaIdentidadYEventos),
     };
 
     // ────────────────────────────────────────────────────────────────────────
@@ -232,5 +241,97 @@ public static class WebMigrations
         UPDATE rutx_no_sale_operations SET status = 'retryable_failed' WHERE status IN ('received', 'PENDING', 'media_staged', 'MEDIA_SYNCED', 'failed', 'FAILED');
         UPDATE rutx_no_sale_operations SET status = 'media_promotion_pending' WHERE status IN ('firebird_committed', 'DB_SYNCED');
         UPDATE rutx_no_sale_operations SET status = 'completed' WHERE status = 'COMPLETED';
+    ";
+
+    // ────────────────────────────────────────────────────────────────────────
+    // v007 — Telemetría: identidad de dispositivos y eventos operativos
+    // ────────────────────────────────────────────────────────────────────────
+    private const string TelemetriaIdentidadYEventos = @"
+        -- Licencias/contratos por cliente
+        CREATE TABLE IF NOT EXISTS rutx_contracts (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            contract_number    TEXT    NOT NULL UNIQUE,
+            license_number     TEXT    NULL,
+            license_key_hash   TEXT    NULL,
+            status             TEXT    NOT NULL DEFAULT 'active',
+            max_active_devices INTEGER NOT NULL DEFAULT 3,
+            valid_from         TEXT    NOT NULL,
+            valid_to           TEXT    NULL,
+            created_at         TEXT    NOT NULL,
+            updated_at         TEXT    NOT NULL
+        );
+
+        -- Clientes asignados al contrato (para validación soft)
+        CREATE TABLE IF NOT EXISTS rutx_customer_refs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            contract_id INTEGER NOT NULL REFERENCES rutx_contracts(id),
+            customer_id INTEGER NOT NULL,
+            created_at  TEXT    NOT NULL,
+            UNIQUE(contract_id, customer_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_rutx_customer_refs_contract ON rutx_customer_refs(contract_id);
+
+        -- Dispositivos físicos registrados
+        CREATE TABLE IF NOT EXISTS rutx_mobile_devices (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id   TEXT    NOT NULL UNIQUE,
+            platform    TEXT    NOT NULL,
+            app_version TEXT    NOT NULL,
+            token_hash  TEXT    NULL,
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL
+        );
+
+        -- Asignación dispositivo <-> vendedor <-> contrato
+        CREATE TABLE IF NOT EXISTS rutx_device_assignments (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id     INTEGER NOT NULL REFERENCES rutx_mobile_devices(id),
+            contract_id   INTEGER NOT NULL REFERENCES rutx_contracts(id),
+            device_number INTEGER NOT NULL,
+            seller_id     INTEGER NOT NULL,
+            status        TEXT    NOT NULL DEFAULT 'active',
+            valid_from    TEXT    NOT NULL,
+            valid_to      TEXT    NULL,
+            created_at    TEXT    NOT NULL,
+            updated_at    TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_rutx_device_asgn_device   ON rutx_device_assignments(device_id, status);
+        CREATE INDEX IF NOT EXISTS ix_rutx_device_asgn_contract ON rutx_device_assignments(contract_id, status);
+
+        -- Registro inmutable de eventos operativos
+        CREATE TABLE IF NOT EXISTS rutx_seller_events (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_event_id      TEXT    NOT NULL UNIQUE,
+            event_type           TEXT    NOT NULL,
+            seller_id            INTEGER NOT NULL,
+            device_assignment_id INTEGER NULL REFERENCES rutx_device_assignments(id),
+            customer_id          INTEGER NULL,
+            related_entity_id    TEXT    NULL,
+            payload_hash         TEXT    NOT NULL,
+            metadata_json        TEXT    NULL,
+            occurred_at          TEXT    NOT NULL,
+            status               TEXT    NOT NULL DEFAULT 'received',
+            created_at           TEXT    NOT NULL,
+            updated_at           TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_rutx_seller_events_seller ON rutx_seller_events(seller_id, occurred_at);
+        CREATE INDEX IF NOT EXISTS ix_rutx_seller_events_type   ON rutx_seller_events(event_type);
+
+        -- Cierres de jornada
+        CREATE TABLE IF NOT EXISTS rutx_route_closures (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            cierre_movil_id TEXT    NOT NULL UNIQUE,
+            seller_id       INTEGER NOT NULL,
+            request_json    TEXT    NULL,
+            response_json   TEXT    NULL,
+            status          TEXT    NOT NULL DEFAULT 'pending',
+            created_at      TEXT    NOT NULL,
+            updated_at      TEXT    NOT NULL
+        );
+
+        -- Columnas de trazabilidad en ubicaciones GPS (best-effort, nullable)
+        ALTER TABLE rutx_seller_locations ADD COLUMN event_id          INTEGER NULL;
+        ALTER TABLE rutx_seller_locations ADD COLUMN source_event_type TEXT    NULL;
+        ALTER TABLE rutx_seller_locations ADD COLUMN customer_id       INTEGER NULL;
     ";
 }

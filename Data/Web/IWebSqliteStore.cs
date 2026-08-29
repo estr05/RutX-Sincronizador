@@ -186,6 +186,58 @@ public interface IWebSqliteStore
         int maxIntentos = 5,
         int limite = 10,
         CancellationToken ct = default);
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TELEMETRÍA Y DISPOSITIVOS (v007)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Contratos
+    Task<RutxContractRow?> GetContractByNumberAsync(string contractNumber, CancellationToken ct = default);
+    Task<RutxContractRow?> GetContractByIdAsync(long contractId, CancellationToken ct = default);
+    Task<RutxContractRow> EnsureContractAsync(string contractNumber, string validFrom,
+        string? validTo, int maxActiveDevices, CancellationToken ct = default);
+
+    // Referencias de clientes
+    Task UpsertCustomerRefAsync(long contractId, int customerId, CancellationToken ct = default);
+    Task<bool> FindActiveCustomerRefAsync(long contractId, int customerId, CancellationToken ct = default);
+
+    // Dispositivos
+    Task<RutxMobileDeviceRow> UpsertMobileDeviceAsync(string deviceId, string platform,
+        string appVersion, string? tokenHash, CancellationToken ct = default);
+    Task<RutxMobileDeviceRow?> GetMobileDeviceAsync(string deviceId, CancellationToken ct = default);
+
+    // Asignaciones
+    Task<RutxDeviceAssignmentRow?> GetActiveAssignmentAsync(string deviceId, CancellationToken ct = default);
+    Task<RutxDeviceAssignmentRow> CreateAssignmentAsync(long deviceRowId, long contractId,
+        int deviceNumber, int sellerId, CancellationToken ct = default);
+    Task RevokeAssignmentAsync(long assignmentId, CancellationToken ct = default);
+    Task<int> CountActiveAssignmentsAsync(long contractId, CancellationToken ct = default);
+
+    // Eventos (idempotentes)
+    /// <summary>
+    /// Resultado: "inserted" | "duplicate_same_hash" | "conflict"
+    /// </summary>
+    Task<(string Result, SellerEventRow Row)> RegisterEventAsync(
+        SellerEventRow evt, CancellationToken ct = default);
+    Task<SellerEventRow?> GetEventByClientEventIdAsync(string clientEventId, CancellationToken ct = default);
+    Task<SellerEventRow> UpdateEventStatusAsync(long eventId, string status, CancellationToken ct = default);
+
+    // Ubicaciones vinculadas a evento
+    /// <summary>
+    /// Inserta la ubicación en la misma transacción que el evento.
+    /// Solo si lat/lon son válidas. session_id se resuelve desde la sesión activa del seller.
+    /// </summary>
+    Task InsertLocationForEventAsync(
+        long eventId, int sellerId, int? sessionId,
+        double latitude, double longitude, double? accuracy,
+        string occurredAt, string? sourceEventType, int? customerId,
+        CancellationToken ct = default);
+
+    // Cierres de jornada
+    Task<RouteClosureRow> CreateOrGetRouteClosureAsync(string cierreMovilId, int sellerId,
+        string? requestJson, CancellationToken ct = default);
+    Task<RouteClosureRow> UpdateRouteClosureAsync(long id, string status,
+        string? responseJson, CancellationToken ct = default);
 }
 
 /// <summary>Datos para una fila del lote de notificaciones.</summary>

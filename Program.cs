@@ -317,6 +317,10 @@ builder.Services.AddScoped<INotificationWebService, NotificationWebService>();
 // Web Sqlite Store Unificado
 builder.Services.AddSingleton<IWebSqliteStore, WebSqliteStore>();
 
+// Telemetría y dispositivos
+builder.Services.AddScoped<IDeviceRegistryService, DeviceRegistryService>();
+builder.Services.AddScoped<ITelemetryService, TelemetryService>();
+
 // Configuración JWT — la clave ya fue validada en el bloque de secretos al arranque.
 var key = jwtKey; // reutilizar la variable ya leida y validada
 var issuer = builder.Configuration["Jwt:Issuer"]

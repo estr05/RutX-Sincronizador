@@ -730,4 +730,384 @@ public sealed class WebSqliteStore : IWebSqliteStore
         r.GetString(9),
         r.GetString(10),
         r.IsDBNull(11) ? null : r.GetString(11));
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TELEMETRÍA Y DISPOSITIVOS (v007)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public async Task<RutxContractRow?> GetContractByNumberAsync(string contractNumber, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, contract_number, license_number, license_key_hash, status, max_active_devices, valid_from, valid_to, created_at, updated_at FROM rutx_contracts WHERE contract_number = $cn LIMIT 1";
+        cmd.Parameters.AddWithValue("$cn", contractNumber);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return LeerContract(r);
+    }
+
+    public async Task<RutxContractRow?> GetContractByIdAsync(long contractId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, contract_number, license_number, license_key_hash, status, max_active_devices, valid_from, valid_to, created_at, updated_at FROM rutx_contracts WHERE id = $id LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", contractId);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return LeerContract(r);
+    }
+
+    public async Task<RutxContractRow> EnsureContractAsync(string contractNumber, string validFrom, string? validTo, int maxActiveDevices, CancellationToken ct = default)
+    {
+        var existing = await GetContractByNumberAsync(contractNumber, ct);
+        if (existing != null) return existing;
+
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO rutx_contracts (contract_number, status, max_active_devices, valid_from, valid_to, created_at, updated_at)
+            VALUES ($cn, 'active', $max, $vf, $vt, $now, $now);
+            """;
+        cmd.Parameters.AddWithValue("$cn", contractNumber);
+        cmd.Parameters.AddWithValue("$max", maxActiveDevices);
+        cmd.Parameters.AddWithValue("$vf", validFrom);
+        cmd.Parameters.AddWithValue("$vt", (object?)validTo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        await cmd.ExecuteNonQueryAsync(ct);
+        return (await GetContractByNumberAsync(contractNumber, ct))!;
+    }
+
+    public async Task UpsertCustomerRefAsync(long contractId, int customerId, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT OR IGNORE INTO rutx_customer_refs (contract_id, customer_id, created_at) VALUES ($cid, $cust, $now)";
+        cmd.Parameters.AddWithValue("$cid", contractId);
+        cmd.Parameters.AddWithValue("$cust", customerId);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<bool> FindActiveCustomerRefAsync(long contractId, int customerId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM rutx_customer_refs WHERE contract_id = $cid AND customer_id = $cust LIMIT 1";
+        cmd.Parameters.AddWithValue("$cid", contractId);
+        cmd.Parameters.AddWithValue("$cust", customerId);
+        var res = await cmd.ExecuteScalarAsync(ct);
+        return res != null;
+    }
+
+    public async Task<RutxMobileDeviceRow> UpsertMobileDeviceAsync(string deviceId, string platform, string appVersion, string? tokenHash, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO rutx_mobile_devices (device_id, platform, app_version, token_hash, created_at, updated_at)
+            VALUES ($did, $plat, $appv, $thash, $now, $now)
+            ON CONFLICT(device_id) DO UPDATE SET
+                app_version = excluded.app_version,
+                updated_at = excluded.updated_at;
+            """;
+        cmd.Parameters.AddWithValue("$did", deviceId);
+        cmd.Parameters.AddWithValue("$plat", platform);
+        cmd.Parameters.AddWithValue("$appv", appVersion);
+        cmd.Parameters.AddWithValue("$thash", (object?)tokenHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        await cmd.ExecuteNonQueryAsync(ct);
+        return (await GetMobileDeviceAsync(deviceId, ct))!;
+    }
+
+    public async Task<RutxMobileDeviceRow?> GetMobileDeviceAsync(string deviceId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id, device_id, platform, app_version, token_hash, created_at, updated_at FROM rutx_mobile_devices WHERE device_id = $did LIMIT 1";
+        cmd.Parameters.AddWithValue("$did", deviceId);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return LeerDevice(r);
+    }
+
+    public async Task<RutxDeviceAssignmentRow?> GetActiveAssignmentAsync(string deviceId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT a.id, a.device_id, a.contract_id, a.device_number, a.seller_id, a.status, a.valid_from, a.valid_to, a.created_at, a.updated_at
+            FROM rutx_device_assignments a
+            JOIN rutx_mobile_devices d ON a.device_id = d.id
+            WHERE d.device_id = $did AND a.status = 'active' AND a.valid_to IS NULL
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$did", deviceId);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return LeerAssignment(r);
+    }
+
+    public async Task<RutxDeviceAssignmentRow> CreateAssignmentAsync(long deviceRowId, long contractId, int deviceNumber, int sellerId, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO rutx_device_assignments (device_id, contract_id, device_number, seller_id, status, valid_from, created_at, updated_at)
+            VALUES ($did, $cid, $num, $sid, 'active', $now, $now, $now);
+            SELECT last_insert_rowid();
+            """;
+        cmd.Parameters.AddWithValue("$did", deviceRowId);
+        cmd.Parameters.AddWithValue("$cid", contractId);
+        cmd.Parameters.AddWithValue("$num", deviceNumber);
+        cmd.Parameters.AddWithValue("$sid", sellerId);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        var id = (long)(await cmd.ExecuteScalarAsync(ct) ?? 0L);
+        return new RutxDeviceAssignmentRow(id, deviceRowId, contractId, deviceNumber, sellerId, "active", ahora, null, ahora, ahora);
+    }
+
+    public async Task RevokeAssignmentAsync(long assignmentId, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE rutx_device_assignments SET status = 'revoked', valid_to = $now, updated_at = $now WHERE id = $id";
+        cmd.Parameters.AddWithValue("$now", ahora);
+        cmd.Parameters.AddWithValue("$id", assignmentId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<int> CountActiveAssignmentsAsync(long contractId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM rutx_device_assignments WHERE contract_id = $cid AND status = 'active' AND valid_to IS NULL";
+        cmd.Parameters.AddWithValue("$cid", contractId);
+        return (int)(long)(await cmd.ExecuteScalarAsync(ct) ?? 0L);
+    }
+
+    public async Task<(string Result, SellerEventRow Row)> RegisterEventAsync(SellerEventRow evt, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var txn = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+        try
+        {
+            await using var insertCmd = conn.CreateCommand();
+            insertCmd.Transaction = txn;
+            insertCmd.CommandText = """
+                INSERT OR IGNORE INTO rutx_seller_events
+                    (client_event_id, event_type, seller_id, device_assignment_id,
+                     customer_id, related_entity_id, payload_hash, metadata_json,
+                     occurred_at, status, created_at, updated_at)
+                VALUES ($ceid, $etype, $sid, $daid, $cid, $reid, $phash, $meta,
+                        $oat, 'received', $now, $now);
+                """;
+            insertCmd.Parameters.AddWithValue("$ceid", evt.ClientEventId);
+            insertCmd.Parameters.AddWithValue("$etype", evt.EventType);
+            insertCmd.Parameters.AddWithValue("$sid", evt.SellerId);
+            insertCmd.Parameters.AddWithValue("$daid", (object?)evt.DeviceAssignmentId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$cid", (object?)evt.CustomerId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$reid", (object?)evt.RelatedEntityId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$phash", evt.PayloadHash);
+            insertCmd.Parameters.AddWithValue("$meta", (object?)evt.MetadataJson ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$oat", evt.OccurredAt);
+            insertCmd.Parameters.AddWithValue("$now", ahora);
+            var changes = await insertCmd.ExecuteNonQueryAsync(ct);
+
+            if (changes == 1)
+            {
+                await txn.CommitAsync(ct);
+                var row = await GetEventByClientEventIdAsync(evt.ClientEventId, ct);
+                return ("inserted", row!);
+            }
+
+            var existing = await GetEventByClientEventIdAsync(evt.ClientEventId, ct);
+            await txn.CommitAsync(ct);
+            if (existing!.PayloadHash == evt.PayloadHash)
+                return ("duplicate_same_hash", existing);
+            return ("conflict", existing);
+        }
+        catch
+        {
+            await txn.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<SellerEventRow?> GetEventByClientEventIdAsync(string clientEventId, CancellationToken ct = default)
+    {
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, client_event_id, event_type, seller_id, device_assignment_id,
+                   customer_id, related_entity_id, payload_hash, metadata_json,
+                   occurred_at, status, created_at, updated_at
+            FROM rutx_seller_events
+            WHERE client_event_id = $ceid LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$ceid", clientEventId);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        if (!await r.ReadAsync(ct)) return null;
+        return LeerEvent(r);
+    }
+
+    public async Task<SellerEventRow> UpdateEventStatusAsync(long eventId, string status, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE rutx_seller_events SET status = $status, updated_at = $now WHERE id = $id";
+        cmd.Parameters.AddWithValue("$status", status);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        cmd.Parameters.AddWithValue("$id", eventId);
+        await cmd.ExecuteNonQueryAsync(ct);
+        
+        await using var getCmd = conn.CreateCommand();
+        getCmd.CommandText = """
+            SELECT id, client_event_id, event_type, seller_id, device_assignment_id,
+                   customer_id, related_entity_id, payload_hash, metadata_json,
+                   occurred_at, status, created_at, updated_at
+            FROM rutx_seller_events
+            WHERE id = $id LIMIT 1
+            """;
+        getCmd.Parameters.AddWithValue("$id", eventId);
+        await using var r = await getCmd.ExecuteReaderAsync(ct);
+        await r.ReadAsync(ct);
+        return LeerEvent(r);
+    }
+
+    public async Task InsertLocationForEventAsync(
+        long eventId, int sellerId, int? sessionId,
+        double latitude, double longitude, double? accuracy,
+        string occurredAt, string? sourceEventType, int? customerId,
+        CancellationToken ct = default)
+    {
+        if (latitude < -90.0 || latitude > 90.0) throw new ArgumentException("Latitud fuera de rango.");
+        if (longitude < -180.0 || longitude > 180.0) throw new ArgumentException("Longitud fuera de rango.");
+        if (accuracy.HasValue && accuracy.Value < 0) throw new ArgumentException("Precision negativa.");
+
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var txn = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+        try
+        {
+            long? resolvedSessionId = sessionId;
+            if (resolvedSessionId == null)
+            {
+                await using var sesCmd = conn.CreateCommand();
+                sesCmd.Transaction = txn;
+                sesCmd.CommandText = "SELECT id FROM rutx_seller_sessions WHERE seller_id = $sid AND status = 'open' ORDER BY started_at DESC LIMIT 1";
+                sesCmd.Parameters.AddWithValue("$sid", sellerId);
+                var res = await sesCmd.ExecuteScalarAsync(ct);
+                if (res != null && res != DBNull.Value)
+                {
+                    resolvedSessionId = Convert.ToInt64(res);
+                }
+                else
+                {
+                    // Auto-crear sesión de vendedor si no existe una abierta
+                    await using var createSesCmd = conn.CreateCommand();
+                    createSesCmd.Transaction = txn;
+                    createSesCmd.CommandText = """
+                        INSERT INTO rutx_seller_sessions (seller_id, status, started_at, created_at)
+                        VALUES ($sid, 'open', $now, $now);
+                        SELECT last_insert_rowid();
+                    """;
+                    createSesCmd.Parameters.AddWithValue("$sid", sellerId);
+                    createSesCmd.Parameters.AddWithValue("$now", ahora);
+                    resolvedSessionId = (long)(await createSesCmd.ExecuteScalarAsync(ct) ?? 0L);
+                }
+            }
+
+            await using var insertCmd = conn.CreateCommand();
+            insertCmd.Transaction = txn;
+            insertCmd.CommandText = """
+                INSERT INTO rutx_seller_locations 
+                    (session_id, seller_id, latitude, longitude, accuracy, recorded_at, created_at, event_id, source_event_type, customer_id)
+                VALUES ($sesid, $sid, $lat, $lon, $acc, $rec, $now, $evid, $set, $cid)
+                """;
+            insertCmd.Parameters.AddWithValue("$sesid", (object?)resolvedSessionId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$sid", sellerId);
+            insertCmd.Parameters.AddWithValue("$lat", latitude);
+            insertCmd.Parameters.AddWithValue("$lon", longitude);
+            insertCmd.Parameters.AddWithValue("$acc", (object?)accuracy ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$rec", occurredAt);
+            insertCmd.Parameters.AddWithValue("$now", ahora);
+            insertCmd.Parameters.AddWithValue("$evid", eventId);
+            insertCmd.Parameters.AddWithValue("$set", (object?)sourceEventType ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("$cid", (object?)customerId ?? DBNull.Value);
+            
+            await insertCmd.ExecuteNonQueryAsync(ct);
+            await txn.CommitAsync(ct);
+        }
+        catch
+        {
+            await txn.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    public async Task<RouteClosureRow> CreateOrGetRouteClosureAsync(string cierreMovilId, int sellerId, string? requestJson, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO rutx_route_closures (cierre_movil_id, seller_id, request_json, status, created_at, updated_at)
+            VALUES ($cmid, $sid, $req, 'pending', $now, $now);
+            """;
+        cmd.Parameters.AddWithValue("$cmid", cierreMovilId);
+        cmd.Parameters.AddWithValue("$sid", sellerId);
+        cmd.Parameters.AddWithValue("$req", (object?)requestJson ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await using var getCmd = conn.CreateCommand();
+        getCmd.CommandText = "SELECT id, cierre_movil_id, seller_id, request_json, response_json, status, created_at, updated_at FROM rutx_route_closures WHERE cierre_movil_id = $cmid LIMIT 1";
+        getCmd.Parameters.AddWithValue("$cmid", cierreMovilId);
+        await using var r = await getCmd.ExecuteReaderAsync(ct);
+        await r.ReadAsync(ct);
+        return LeerClosure(r);
+    }
+
+    public async Task<RouteClosureRow> UpdateRouteClosureAsync(long id, string status, string? responseJson, CancellationToken ct = default)
+    {
+        var ahora = DateTime.UtcNow.ToString("o");
+        await using var conn = await AbrirAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE rutx_route_closures SET status = $status, response_json = $res, updated_at = $now WHERE id = $id";
+        cmd.Parameters.AddWithValue("$status", status);
+        cmd.Parameters.AddWithValue("$res", (object?)responseJson ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$now", ahora);
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await using var getCmd = conn.CreateCommand();
+        getCmd.CommandText = "SELECT id, cierre_movil_id, seller_id, request_json, response_json, status, created_at, updated_at FROM rutx_route_closures WHERE id = $id LIMIT 1";
+        getCmd.Parameters.AddWithValue("$id", id);
+        await using var r = await getCmd.ExecuteReaderAsync(ct);
+        await r.ReadAsync(ct);
+        return LeerClosure(r);
+    }
+
+    private static RutxContractRow LeerContract(SqliteDataReader r) => new(
+        r.GetInt64(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3),
+        r.GetString(4), r.GetInt32(5), r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7), r.GetString(8), r.GetString(9));
+
+    private static RutxMobileDeviceRow LeerDevice(SqliteDataReader r) => new(
+        r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4), r.GetString(5), r.GetString(6));
+
+    private static RutxDeviceAssignmentRow LeerAssignment(SqliteDataReader r) => new(
+        r.GetInt64(0), r.GetInt64(1), r.GetInt64(2), r.GetInt32(3), r.GetInt32(4), r.GetString(5), r.GetString(6), r.IsDBNull(7) ? null : r.GetString(7), r.GetString(8), r.GetString(9));
+
+    private static SellerEventRow LeerEvent(SqliteDataReader r) => new(
+        r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt32(3), r.IsDBNull(4) ? null : r.GetInt64(4), r.IsDBNull(5) ? null : r.GetInt32(5),
+        r.IsDBNull(6) ? null : r.GetString(6), r.GetString(7), r.IsDBNull(8) ? null : r.GetString(8), r.GetString(9), r.GetString(10), r.GetString(11), r.GetString(12));
+
+    private static RouteClosureRow LeerClosure(SqliteDataReader r) => new(
+        r.GetInt64(0), r.GetString(1), r.GetInt32(2), r.IsDBNull(3) ? null : r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4), r.GetString(5), r.GetString(6), r.GetString(7));
 }

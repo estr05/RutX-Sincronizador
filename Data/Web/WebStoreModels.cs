@@ -90,3 +90,102 @@ public sealed record MediaFileRow(
     string Status,
     string CreatedAt,
     string? PromotedAt);
+
+// ── v007 Telemetría ──────────────────────────────────────────────────────────
+
+public sealed record RutxContractRow(
+    long Id,
+    string ContractNumber,
+    string? LicenseNumber,
+    string? LicenseKeyHash,
+    string Status,
+    int MaxActiveDevices,
+    string ValidFrom,
+    string? ValidTo,
+    string CreatedAt,
+    string UpdatedAt);
+
+public sealed record RutxCustomerRefRow(
+    long Id,
+    long ContractId,
+    int CustomerId,
+    string CreatedAt);
+
+public sealed record RutxMobileDeviceRow(
+    long Id,
+    string DeviceId,
+    string Platform,
+    string AppVersion,
+    string? TokenHash,
+    string CreatedAt,
+    string UpdatedAt);
+
+public sealed record RutxDeviceAssignmentRow(
+    long Id,
+    long DeviceId,
+    long ContractId,
+    int DeviceNumber,
+    int SellerId,
+    string Status,
+    string ValidFrom,
+    string? ValidTo,
+    string CreatedAt,
+    string UpdatedAt);
+
+public sealed record SellerEventRow(
+    long Id,
+    string ClientEventId,
+    string EventType,
+    int SellerId,
+    long? DeviceAssignmentId,
+    int? CustomerId,
+    string? RelatedEntityId,
+    string PayloadHash,
+    string? MetadataJson,
+    string OccurredAt,
+    string Status,
+    string CreatedAt,
+    string UpdatedAt);
+
+public sealed record RouteClosureRow(
+    long Id,
+    string CierreMovilId,
+    int SellerId,
+    string? RequestJson,
+    string? ResponseJson,
+    string Status,
+    string CreatedAt,
+    string UpdatedAt);
+
+public sealed record NotificationRecipientRow(
+    long Id,
+    long ContractId,
+    int? SellerId,
+    long? DeviceId,
+    string? PushToken,
+    string CreatedAt);
+
+public sealed record NotificationDeliveryRow(
+    long Id,
+    long RecipientId,
+    long? NotificationId,
+    string Status,
+    string? SentAt,
+    string? Error,
+    string CreatedAt);
+
+public sealed record NotificationReceiptRow(
+    long Id,
+    long DeliveryId,
+    string ReceivedAt,
+    string CreatedAt);
+
+public sealed record RouteAssignmentRow(
+    long Id,
+    long ContractId,
+    int SellerId,
+    string RouteDate,
+    string Status,
+    string? Notes,
+    string CreatedAt,
+    string UpdatedAt);

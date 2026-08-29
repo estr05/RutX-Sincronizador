@@ -21,7 +21,7 @@ public static class WebRoleCatalog
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> PermisosPorRol =
         new Dictionary<string, IReadOnlyList<string>>
         {
-            [Administrador] = new[] { "reports.read", "customers.read", "inventory.read", "notifications.read", "notifications.send", "routes.monitor", "agendas.read" },
+            [Administrador] = new[] { "reports.read", "customers.read", "inventory.read", "notifications.read", "notifications.send", "routes.monitor", "agendas.read", "sales.read", "products.read", "config.users.read" },
             [Supervisor] = new[] { "reports.read", "customers.read", "inventory.read", "notifications.read", "notifications.send", "routes.monitor" },
             [Lector] = new[] { "reports.read", "customers.read", "inventory.read", "notifications.read" },
         };
